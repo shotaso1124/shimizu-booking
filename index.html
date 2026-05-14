@@ -344,6 +344,7 @@ function isoForInput(iso) {
  * Button-based zoom for seat grid
  * ========================= */
 const zoomStates = new Map(); // ズーム状態永続化（render後も保持）
+let panAbortController = null;
 
 function applyZoom(targetId, scaleFactor) {
   const target = document.getElementById(targetId);
@@ -368,10 +369,17 @@ function resetZoom(targetId) {
 }
 
 function attachPan(targetId) {
+  // 旧リスナー削除
+  if (panAbortController) panAbortController.abort();
+  panAbortController = new AbortController();
+  const signal = panAbortController.signal;
+
   const target = document.getElementById(targetId);
   if (!target) return;
+
   let isPanning = false;
   let startX = 0, startY = 0, startPosX = 0, startPosY = 0;
+
   target.addEventListener('touchstart', (e) => {
     if (e.touches.length !== 1) return;
     const zs = zoomStates.get(targetId);
@@ -382,7 +390,8 @@ function attachPan(targetId) {
     startPosX = zs.pos.x;
     startPosY = zs.pos.y;
     e.preventDefault();
-  }, { passive: false });
+  }, { passive: false, signal });
+
   document.addEventListener('touchmove', (e) => {
     if (!isPanning || e.touches.length !== 1) return;
     const dx = e.touches[0].clientX - startX;
@@ -393,8 +402,9 @@ function attachPan(targetId) {
     zoomStates.set(targetId, zs);
     target.style.transform = `translate(${zs.pos.x}px, ${zs.pos.y}px) scale(${zs.scale})`;
     e.preventDefault();
-  }, { passive: false });
-  document.addEventListener('touchend', () => { isPanning = false; });
+  }, { passive: false, signal });
+
+  document.addEventListener('touchend', () => { isPanning = false; }, { signal });
 }
 
 function restoreZoom(targetId) {
@@ -421,6 +431,12 @@ window.resetZoom = resetZoom;
  * ========================= */
 function render() {
   const root = document.getElementById('app');
+
+  // スクロール位置を保存
+  const scrollEl = document.querySelector('.scroll-x');
+  const savedScrollLeft = scrollEl ? scrollEl.scrollLeft : 0;
+  const savedScrollTop = scrollEl ? scrollEl.scrollTop : 0;
+
   let html = '';
   if (state.view === 'home') html = renderHome();
   else if (state.view === 'seats') html = renderSeats();
@@ -441,6 +457,13 @@ function render() {
     gw.classList.add('pinch-zoom-container');
     restoreZoom('gridWrap');
     attachPan('gridWrap');
+
+    // スクロール位置を復元（restoreZoom より後）
+    const newScrollEl = document.querySelector('.scroll-x');
+    if (newScrollEl) {
+      newScrollEl.scrollLeft = savedScrollLeft;
+      newScrollEl.scrollTop = savedScrollTop;
+    }
   }
 
   // 既存のzoom-controlsを削除（重複防止）
