@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>清水テルサ 座席予約システム</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -81,6 +81,7 @@
     .seat-cell { width: 30px; height: 30px; font-size: 9px; }
     .col-label { width: 30px; }
   }
+  .pinch-zoom-container { touch-action: none; transform-origin: 0 0; will-change: transform; }
 </style>
 </head>
 <body class="min-h-screen">
@@ -317,6 +318,63 @@ function isoForInput(iso) {
 }
 
 /* =========================
+ * Pinch-zoom for seat grid
+ * ========================= */
+function attachPinchZoom(target) {
+  target.classList.add('pinch-zoom-container');
+  target.style.transform = '';
+  let scale = 1, lastScale = 1;
+  let pos = {x: 0, y: 0}, lastPos = {x: 0, y: 0};
+  let initialDist = 0;
+  let touchStart = null;
+  const MIN_SCALE = 0.5, MAX_SCALE = 3.0;
+
+  function applyTransform() {
+    target.style.transform = `translate(${pos.x}px, ${pos.y}px) scale(${scale})`;
+  }
+  function distFn(t1, t2) {
+    return Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+  }
+
+  target.addEventListener('touchstart', e => {
+    if (e.touches.length === 2) {
+      initialDist = distFn(e.touches[0], e.touches[1]);
+      lastScale = scale;
+      lastPos = {...pos};
+      e.preventDefault();
+    } else if (e.touches.length === 1 && scale > 1) {
+      touchStart = {x: e.touches[0].clientX, y: e.touches[0].clientY};
+      lastPos = {...pos};
+      e.preventDefault();
+    }
+  }, {passive: false});
+
+  target.addEventListener('touchmove', e => {
+    if (e.touches.length === 2) {
+      const newDist = distFn(e.touches[0], e.touches[1]);
+      scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, lastScale * (newDist / initialDist)));
+      applyTransform();
+      e.preventDefault();
+    } else if (e.touches.length === 1 && touchStart && scale > 1) {
+      pos = {x: lastPos.x + (e.touches[0].clientX - touchStart.x), y: lastPos.y + (e.touches[0].clientY - touchStart.y)};
+      applyTransform();
+      e.preventDefault();
+    }
+  }, {passive: false});
+
+  target.addEventListener('touchend', e => {
+    if (e.touches.length < 2) touchStart = null;
+  });
+
+  let lastTap = 0;
+  target.addEventListener('touchend', e => {
+    const now = Date.now();
+    if (now - lastTap < 300) { scale = 1; pos = {x:0,y:0}; applyTransform(); }
+    lastTap = now;
+  });
+}
+
+/* =========================
  * Render entry
  * ========================= */
 function render() {
@@ -331,6 +389,9 @@ function render() {
   else if (state.view === 'admin') html = renderAdmin();
   root.innerHTML = html;
   bindEvents();
+  // Attach pinch-zoom to seat grid (customer & editor views)
+  const gw = document.getElementById('gridWrap');
+  if (gw) attachPinchZoom(gw);
   // Attach aisle drag handlers when in layout editor with paintAisle tool
   if (state.view === 'admin' && state.admin.authenticated && state.admin.layoutEditing) {
     attachAisleDrag();
