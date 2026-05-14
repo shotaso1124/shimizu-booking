@@ -1,0 +1,1890 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>清水テルサ 座席予約システム</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          primary: '#FF6B6B',
+          accent: '#FFD93D',
+          base: '#F7F7F7',
+          surface: '#FFFFFF',
+          textmain: '#1A1A2E',
+          success: '#6BCB77',
+          disabled: '#BDBDBD',
+          aisle: '#E2E8F0',
+        },
+        fontFamily: {
+          sans: ['"Noto Sans JP"', 'sans-serif'],
+        },
+        borderRadius: {
+          card: '16px',
+        }
+      }
+    }
+  }
+</script>
+<style>
+  html, body { font-family: 'Noto Sans JP', sans-serif; background:#F7F7F7; color:#1A1A2E; -webkit-tap-highlight-color: transparent; }
+  button, .tap { min-height: 48px; min-width: 48px; }
+  .seat { transition: transform .08s ease, box-shadow .08s ease; }
+  .seat:active { transform: scale(0.94); }
+  .scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; text-align: center; }
+  .scroll-x::-webkit-scrollbar { height: 6px; }
+  .scroll-x::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius: 3px; }
+  .grid-wrap { display: inline-block; padding: 12px; margin: 0 auto; }
+  .stage-bar { background: linear-gradient(180deg,#1A1A2E,#2d2d4a); color:#fff; padding:8px 16px; border-radius:8px; text-align:center; font-weight:700; letter-spacing:0.2em; margin-bottom:12px; }
+  .badge { display:inline-flex; align-items:center; padding:4px 10px; border-radius:9999px; font-size:12px; font-weight:700; }
+  .legend-dot { width:16px; height:16px; border-radius:6px; display:inline-block; }
+  .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background:#1A1A2E; color:#fff; padding: 12px 20px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); z-index: 9999; font-weight: 600; opacity: 0; transition: opacity .2s ease, transform .2s ease; pointer-events:none; }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(-4px); }
+  .modal-bg { background: rgba(0,0,0,0.5); }
+  .seat-cell { width: 36px; height: 36px; border-radius: 8px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight: 700; user-select:none; }
+  .seat-reserved { background:#FFFFFF; border:2px solid #FF6B6B; color:#FF6B6B; }
+  .seat-reserved.selected { background:#FF6B6B; color:#fff; border-color:#FF6B6B; box-shadow: 0 4px 10px rgba(255,107,107,0.4); }
+  .seat-free { background:#FFD93D; border:2px solid #e0b800; color:#1A1A2E; }
+  .seat-disabled { background:#BDBDBD; color:#fff; cursor:not-allowed; }
+  .seat-aisle { background:#E2E8F0; }
+  .seat-empty { background:transparent; }
+  .seat-sold { background:#fff; color:#BDBDBD; border:2px dashed #BDBDBD; text-decoration: line-through; cursor:not-allowed; }
+  .tool-btn { padding: 8px 12px; border-radius: 10px; font-size: 13px; font-weight: 700; border:1px solid #e5e7eb; background:#fff; }
+  .tool-btn.active { background:#FF6B6B; color:#fff; border-color:#FF6B6B; }
+  .input { width:100%; border:1px solid #e5e7eb; border-radius:10px; padding:12px 14px; font-size:16px; }
+  .input:focus { outline:none; border-color:#FF6B6B; box-shadow: 0 0 0 3px rgba(255,107,107,0.15); }
+  .label { font-size:13px; font-weight:600; color:#475569; margin-bottom:6px; display:block; }
+  .err { color:#dc2626; font-size:12px; margin-top:4px; }
+  .btn-primary { background:#FF6B6B; color:#fff; font-weight:700; padding:14px 16px; border-radius:12px; }
+  .btn-primary:disabled { background:#BDBDBD; cursor:not-allowed; }
+  .btn-ghost { background:#fff; color:#1A1A2E; font-weight:700; padding:14px 16px; border-radius:12px; border:1px solid #e5e7eb; }
+  .row-label { width:28px; text-align:center; font-size:11px; color:#64748b; font-weight:700; }
+  .col-label { width:36px; text-align:center; font-size:10px; color:#64748b; font-weight:700; }
+  .row-ctrl { display:flex; flex-direction:column; gap:2px; padding-left:6px; }
+  .row-ctrl-btn { width:22px; height:22px; min-width:22px; min-height:22px; border-radius:6px; background:#fff; border:1px solid #cbd5e1; color:#475569; font-weight:700; font-size:12px; line-height:1; display:flex; align-items:center; justify-content:center; padding:0; }
+  .row-ctrl-btn:hover { background:#f1f5f9; border-color:#94a3b8; }
+  .row-ctrl-btn:active { transform: scale(0.92); }
+  .seat-empty { background:transparent; pointer-events:none; }
+  .drag-preview { position:absolute; pointer-events:none; background:rgba(59,130,246,0.35); border:2px solid #3b82f6; border-radius:6px; z-index:5; }
+  .grid-wrap { position:relative; }
+  .tabs { display:flex; gap:8px; }
+  .tab { padding: 10px 14px; border-radius:10px; background:#fff; border:1px solid #e5e7eb; font-weight:700; font-size:14px; }
+  .tab.active { background:#1A1A2E; color:#fff; border-color:#1A1A2E; }
+  .card { background:#fff; border-radius:16px; box-shadow: 0 4px 12px rgba(0,0,0,0.06); padding:16px; }
+  @media (max-width: 480px) {
+    .seat-cell { width: 30px; height: 30px; font-size: 9px; }
+    .col-label { width: 30px; }
+  }
+</style>
+</head>
+<body class="min-h-screen">
+<div id="app"></div>
+<div id="modalRoot"></div>
+<div id="toast" class="toast"></div>
+
+<script>
+'use strict';
+/* =========================
+ * Data layer
+ * ========================= */
+const STORAGE_KEY = 'dance_booking_data';
+
+function uid(prefix='id') { return prefix + '_' + Math.random().toString(36).slice(2,9) + Date.now().toString(36).slice(-4); }
+
+function makeAlphaLabel(rowIdx, colIdx) {
+  // rowIdx 0 -> 'A', 1 -> 'B', ...
+  let row = '';
+  let r = rowIdx;
+  do {
+    row = String.fromCharCode(65 + (r % 26)) + row;
+    r = Math.floor(r / 26) - 1;
+  } while (r >= 0);
+  return row + (colIdx + 1);
+}
+
+function buildShimizuTerrsa() {
+  // 19 rows x 27 cols
+  const rows = 19, cols = 27;
+  const seats = [];
+  const centerCol = 13; // 0-indexed: 13 -> the 14th column = center aisle
+  const horizontalAisleRow = 15; // 0-indexed row index 15 -> 16th row (after row 15)
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      let type = 'reserved';
+      let label = makeAlphaLabel(r, c);
+      if (c === centerCol) {
+        type = 'aisle'; label = '';
+      } else if (r === horizontalAisleRow) {
+        type = 'aisle'; label = '';
+      } else if (r >= 16) {
+        // rows 16,17,18 -> 自由席 (after horizontal aisle row 15)
+        type = 'free';
+      }
+      seats.push({ row: r, col: c, type, label });
+    }
+  }
+  const aisles = [
+    { id: uid('ai'), name: '中央通路', startRow: 0, endRow: rows-1, startCol: centerCol, endCol: centerCol, type: 'vertical' },
+    { id: uid('ai'), name: '後方横通路', startRow: horizontalAisleRow, endRow: horizontalAisleRow, startCol: 0, endCol: cols-1, type: 'horizontal' },
+  ];
+  const rowCols = {};
+  for (let r=0;r<rows;r++) rowCols[r] = cols;
+  return { rows, cols, seats, aisles, rowCols };
+}
+
+function blankLayout(rows=10, cols=10) {
+  const seats = [];
+  for (let r=0;r<rows;r++) for (let c=0;c<cols;c++) seats.push({ row:r, col:c, type:'reserved', label: makeAlphaLabel(r,c) });
+  const rowCols = {};
+  for (let r=0;r<rows;r++) rowCols[r] = cols;
+  return { rows, cols, seats, aisles: [], rowCols };
+}
+
+// Ensure rowCols exists for backward compatibility
+function ensureRowCols(layout) {
+  if (!layout) return;
+  if (!layout.rowCols) layout.rowCols = {};
+  for (let r=0;r<layout.rows;r++) {
+    if (typeof layout.rowCols[r] !== 'number') layout.rowCols[r] = layout.cols;
+  }
+  // strip stale keys
+  Object.keys(layout.rowCols).forEach(k => {
+    const ri = parseInt(k,10);
+    if (ri >= layout.rows) delete layout.rowCols[k];
+  });
+}
+function rowColCount(layout, r) {
+  ensureRowCols(layout);
+  return layout.rowCols[r] || 0;
+}
+function recomputeCols(layout) {
+  ensureRowCols(layout);
+  let maxC = 0;
+  for (let r=0;r<layout.rows;r++) {
+    if (layout.rowCols[r] > maxC) maxC = layout.rowCols[r];
+  }
+  layout.cols = Math.max(1, maxC);
+}
+
+function defaultData() {
+  const venueLayout = buildShimizuTerrsa();
+  const venueId = uid('v');
+  const eventId = uid('e');
+  const today = new Date();
+  const openAt = new Date(today); openAt.setHours(0,0,0,0);
+  const closeAt = new Date('2026-06-14T23:59:00');
+  const eventDate = new Date('2026-06-15T14:00:00');
+  return {
+    venues: [
+      { id: venueId, name: '清水テルサ テルサホール', address: '静岡県静岡市清水区島崎町223', defaultLayout: venueLayout }
+    ],
+    events: [
+      {
+        id: eventId,
+        name: 'サンプル公演 2026年6月15日 14:00開演',
+        datetime: eventDate.toISOString(),
+        venueId,
+        perPersonLimit: 4,
+        openAt: openAt.toISOString(),
+        closeAt: closeAt.toISOString(),
+        layout: JSON.parse(JSON.stringify(venueLayout))
+      }
+    ],
+    reservations: []
+  };
+}
+
+function loadData() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      const data = defaultData();
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      return data;
+    }
+    const data = JSON.parse(raw);
+    // Backward compat: ensure rowCols exists on every layout
+    (data.venues || []).forEach(v => { if (v.defaultLayout) ensureRowCols(v.defaultLayout); });
+    (data.events || []).forEach(e => { if (e.layout) ensureRowCols(e.layout); });
+    return data;
+  } catch(e) {
+    const data = defaultData();
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    return data;
+  }
+}
+function saveData(d) { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)); }
+
+let DATA = loadData();
+
+/* =========================
+ * State (router & UI)
+ * ========================= */
+const state = {
+  view: 'home',              // home | seats | form | confirm | done | closed | admin
+  selectedEventId: null,
+  reservedSelected: [],      // array of seat labels for current selection
+  freeQty: 0,                // free seats quantity
+  form: { name: '', phone: '' },
+  lastReservationId: null,
+  admin: {
+    authenticated: false,
+    tab: 'venues',           // venues | events | reservations
+    layoutEditing: null,     // { venueId } or { eventId } or 'venueDefault:<venueId>' or 'eventLayout:<eventId>'
+    tool: 'select',          // select | paintReserved | paintFree | paintDisabled | paintAisle | erase
+    symmetry: false,
+    history: [],             // for undo
+    reservationFilter: { name:'', phone:'', eventId:'' }
+  }
+};
+
+const isAdminURL = new URLSearchParams(window.location.search).get('admin') === '1';
+if (isAdminURL) state.view = 'admin';
+
+/* =========================
+ * Toast
+ * ========================= */
+let toastTimer = null;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 1800);
+}
+
+/* =========================
+ * Helpers
+ * ========================= */
+function eventStatus(ev) {
+  const now = new Date();
+  const open = new Date(ev.openAt);
+  const close = new Date(ev.closeAt);
+  if (now < open) return { code:'pre', label:'まもなく受付開始', cls:'bg-yellow-100 text-yellow-800' };
+  if (now > close) return { code:'closed', label:'受付終了', cls:'bg-slate-200 text-slate-600' };
+  return { code:'open', label:'受付中', cls:'bg-emerald-100 text-emerald-700' };
+}
+
+function countSeats(layout) {
+  let reserved=0, free=0, disabled=0, total=0;
+  layout.seats.forEach(s => {
+    if (s.type === 'reserved') reserved++;
+    else if (s.type === 'free') free++;
+    else if (s.type === 'disabled') disabled++;
+    if (s.type !== 'aisle') total++;
+  });
+  return { reserved, free, disabled, total };
+}
+
+function getReservedTakenLabels(eventId) {
+  const taken = new Set();
+  DATA.reservations.filter(r => r.eventId === eventId).forEach(r => {
+    (r.seats||[]).forEach(lbl => taken.add(lbl));
+  });
+  return taken;
+}
+
+function getFreeUsedCount(eventId) {
+  return DATA.reservations.filter(r => r.eventId === eventId).reduce((sum, r) => sum + (r.quantity || 0), 0);
+}
+
+function venueOf(ev) { return DATA.venues.find(v => v.id === ev.venueId); }
+
+function formatDateTime(iso) {
+  const d = new Date(iso);
+  const Y = d.getFullYear();
+  const M = (d.getMonth()+1).toString();
+  const D = d.getDate().toString();
+  const h = d.getHours().toString().padStart(2,'0');
+  const m = d.getMinutes().toString().padStart(2,'0');
+  const wd = ['日','月','火','水','木','金','土'][d.getDay()];
+  return `${Y}年${M}月${D}日(${wd}) ${h}:${m}`;
+}
+function formatDateTimeShort(iso) {
+  const d = new Date(iso);
+  return `${d.getFullYear()}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getDate().toString().padStart(2,'0')} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
+}
+function isoForInput(iso) {
+  const d = new Date(iso);
+  const pad = (n)=> n.toString().padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/* =========================
+ * Render entry
+ * ========================= */
+function render() {
+  const root = document.getElementById('app');
+  let html = '';
+  if (state.view === 'home') html = renderHome();
+  else if (state.view === 'seats') html = renderSeats();
+  else if (state.view === 'form') html = renderForm();
+  else if (state.view === 'confirm') html = renderConfirm();
+  else if (state.view === 'done') html = renderDone();
+  else if (state.view === 'closed') html = renderClosed();
+  else if (state.view === 'admin') html = renderAdmin();
+  root.innerHTML = html;
+  bindEvents();
+  // Attach aisle drag handlers when in layout editor with paintAisle tool
+  if (state.view === 'admin' && state.admin.authenticated && state.admin.layoutEditing) {
+    attachAisleDrag();
+  }
+}
+
+function header({ title, showBack=false, rightBtn=null }) {
+  return `
+  <header class="sticky top-0 z-30 bg-white shadow-sm">
+    <div class="max-w-3xl mx-auto px-4 py-3 flex items-center gap-2">
+      ${showBack ? `<button data-action="back" class="tap rounded-xl px-3 py-2 hover:bg-slate-100 font-bold text-textmain" aria-label="戻る"><span class="text-xl">‹</span> 戻る</button>` : `<div class="w-10"></div>`}
+      <h1 class="flex-1 text-center text-base font-bold text-textmain truncate">${title}</h1>
+      ${rightBtn ? rightBtn : `<div class="w-10"></div>`}
+    </div>
+  </header>`;
+}
+
+/* =========================
+ * View: Home (event list)
+ * ========================= */
+function renderHome() {
+  const cards = DATA.events.map(ev => {
+    const venue = venueOf(ev);
+    const status = eventStatus(ev);
+    const taken = getReservedTakenLabels(ev.id);
+    const cnt = countSeats(ev.layout);
+    const reservedRemain = cnt.reserved - taken.size;
+    const freeUsed = getFreeUsedCount(ev.id);
+    const freeRemain = Math.max(0, cnt.free - freeUsed);
+    return `
+    <button data-action="select-event" data-id="${ev.id}" class="text-left card hover:shadow-lg transition w-full block">
+      <div class="flex justify-between items-start gap-2">
+        <h2 class="text-lg font-bold text-textmain leading-snug">${escapeHtml(ev.name)}</h2>
+        <span class="badge ${status.cls}">${status.label}</span>
+      </div>
+      <p class="text-sm text-slate-600 mt-1">${venue ? escapeHtml(venue.name) : ''}</p>
+      <p class="text-sm text-slate-600">${formatDateTime(ev.datetime)} 開演</p>
+      <div class="mt-3 flex gap-3 text-sm">
+        <div class="flex-1 bg-base rounded-xl py-2 px-3">
+          <p class="text-xs text-slate-500">指定席残り</p>
+          <p class="text-xl font-bold text-primary">${reservedRemain}<span class="text-sm ml-1">席</span></p>
+        </div>
+        <div class="flex-1 bg-base rounded-xl py-2 px-3">
+          <p class="text-xs text-slate-500">自由席残り</p>
+          <p class="text-xl font-bold text-amber-600">${freeRemain}<span class="text-sm ml-1">席分</span></p>
+        </div>
+      </div>
+    </button>`;
+  }).join('');
+
+  return `
+  ${header({ title:'公演を選ぶ', rightBtn:`<button data-action="open-admin" class="tap rounded-xl px-3 py-2 hover:bg-slate-100 font-bold text-sm text-slate-700">管理</button>` })}
+  <main class="max-w-3xl mx-auto px-4 py-4">
+    <p class="text-sm text-slate-600 mb-3">参加したい公演をお選びください。</p>
+    <div class="space-y-4">${cards || '<p class="text-slate-500">現在受付中の公演はありません。</p>'}</div>
+  </main>`;
+}
+
+/* =========================
+ * View: Seats
+ * ========================= */
+function renderSeats() {
+  const ev = DATA.events.find(e => e.id === state.selectedEventId);
+  if (!ev) { state.view='home'; return renderHome(); }
+  const status = eventStatus(ev);
+  if (status.code === 'closed' || status.code === 'pre') {
+    state.view = 'closed';
+    return renderClosed();
+  }
+  const venue = venueOf(ev);
+  const taken = getReservedTakenLabels(ev.id);
+  const cnt = countSeats(ev.layout);
+  const freeUsed = getFreeUsedCount(ev.id);
+  const freeRemain = Math.max(0, cnt.free - freeUsed);
+  const limit = ev.perPersonLimit || 4;
+
+  const grid = renderSeatGrid(ev.layout, {
+    mode: 'customer',
+    takenSet: taken,
+    selectedSet: new Set(state.reservedSelected),
+  });
+
+  const totalSelected = state.reservedSelected.length + state.freeQty;
+  const overLimit = totalSelected > limit;
+
+  const summaryLines = [];
+  if (state.reservedSelected.length) summaryLines.push(`指定席: ${state.reservedSelected.slice().sort().join(', ')}`);
+  if (state.freeQty > 0) summaryLines.push(`自由席 ${state.freeQty}枚`);
+
+  return `
+  ${header({ title: ev.name, showBack: true })}
+  <main class="max-w-3xl mx-auto px-4 py-4 pb-40">
+    <div class="card mb-4">
+      <p class="text-sm text-slate-600">${venue ? escapeHtml(venue.name) : ''}</p>
+      <p class="text-sm text-slate-600">${formatDateTime(ev.datetime)} 開演</p>
+      <p class="text-xs text-slate-500 mt-1">1人あたり ${limit}枚まで予約できます。</p>
+    </div>
+
+    <div class="card mb-4">
+      <h3 class="font-bold mb-2 text-sm">凡例</h3>
+      <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs text-slate-700">
+        <div class="flex items-center gap-2"><span class="legend-dot" style="background:#fff;border:2px solid #FF6B6B;"></span>選択可（指定席）</div>
+        <div class="flex items-center gap-2"><span class="legend-dot" style="background:#FF6B6B;"></span>選択中</div>
+        <div class="flex items-center gap-2"><span class="legend-dot" style="background:#FFD93D;border:2px solid #e0b800;"></span>自由席エリア</div>
+        <div class="flex items-center gap-2"><span class="legend-dot" style="background:#fff;border:2px dashed #BDBDBD;"></span>売切れ</div>
+        <div class="flex items-center gap-2"><span class="legend-dot" style="background:#BDBDBD;"></span>使用不可</div>
+        <div class="flex items-center gap-2"><span class="legend-dot" style="background:#E2E8F0;"></span>通路</div>
+      </div>
+    </div>
+
+    <div class="card mb-4 overflow-hidden">
+      <div class="stage-bar">STAGE</div>
+      <div class="scroll-x text-center">${grid}</div>
+    </div>
+
+    <div class="card mb-4">
+      <h3 class="font-bold mb-2 text-sm">自由席</h3>
+      <p class="text-xs text-slate-500 mb-2">残り <span class="font-bold text-amber-600">${freeRemain}</span> 席分</p>
+      <div class="flex items-center gap-3">
+        <button data-action="free-minus" class="tap w-12 h-12 rounded-xl bg-base font-bold text-2xl">−</button>
+        <div class="flex-1 text-center text-2xl font-bold">${state.freeQty}<span class="text-sm ml-1 font-normal text-slate-500">枚</span></div>
+        <button data-action="free-plus" class="tap w-12 h-12 rounded-xl bg-base font-bold text-2xl">+</button>
+      </div>
+    </div>
+
+    <div class="card mb-4">
+      <h3 class="font-bold mb-2 text-sm">選択内容</h3>
+      ${summaryLines.length ? `<p class="text-sm text-slate-700">${summaryLines.join(' / ')}</p>` : '<p class="text-sm text-slate-400">座席を選択してください。</p>'}
+      ${overLimit ? `<p class="err mt-2">1人あたり${limit}枚までです。</p>` : ''}
+    </div>
+  </main>
+  <div class="fixed bottom-0 left-0 right-0 bg-white shadow-[0_-4px_12px_rgba(0,0,0,0.06)] z-30">
+    <div class="max-w-3xl mx-auto px-4 py-3">
+      <button data-action="to-form" ${(totalSelected===0||overLimit)?'disabled':''} class="w-full btn-primary text-base">予約情報を入力する（${totalSelected}枚）</button>
+    </div>
+  </div>`;
+}
+
+function renderSeatGrid(layout, opts) {
+  const { mode='customer', takenSet=new Set(), selectedSet=new Set(), highlightMode=null } = opts || {};
+  ensureRowCols(layout);
+  const rows = layout.rows, cols = layout.cols;
+  let html = '<div class="grid-wrap" id="gridWrap"><table style="border-spacing:4px;border-collapse:separate;"><tbody>';
+  // header row: col numbers
+  html += '<tr><td class="row-label"></td>';
+  for (let c=0;c<cols;c++) html += `<td class="col-label">${c+1}</td>`;
+  if (mode === 'editor') html += `<td class="col-label"></td>`;
+  html += '</tr>';
+  for (let r=0;r<rows;r++) {
+    const rc = rowColCount(layout, r);
+    const leftPad = Math.floor((cols - rc) / 2);
+    html += '<tr>';
+    const rowLabel = makeAlphaLabel(r, 0).replace(/\d+$/,'');
+    html += `<td class="row-label">${rowLabel}</td>`;
+    // Iterate by absolute column index (0..cols-1) so aisles align with header numbers.
+    for (let absC = 0; absC < cols; absC++) {
+      // 1) Aisle (header-absolute) wins regardless of seat range.
+      const inAisle = (layout.aisles || []).some(a =>
+        r >= a.startRow && r <= a.endRow && absC >= a.startCol && absC <= a.endCol
+      );
+      if (inAisle) {
+        html += `<td><div class="seat-cell seat-aisle"></div></td>`;
+        continue;
+      }
+      // 2) Seat exists if absC maps inside [leftPad, leftPad+rc).
+      const seatCol = absC - leftPad;
+      if (seatCol < 0 || seatCol >= rc) {
+        html += `<td><div class="seat-cell seat-empty"></div></td>`;
+        continue;
+      }
+      const seat = layout.seats.find(s => s.row===r && s.col===seatCol) || { type:'aisle', label:'' };
+      let cls = 'seat-cell ';
+      let content = '';
+      let attrs = '';
+      const labelText = (seat.label || '').replace(/^[A-Z]+/, '');
+      if (mode === 'customer') {
+        if (seat.type === 'reserved') {
+          if (takenSet.has(seat.label)) {
+            cls += 'seat-sold seat'; content = labelText;
+          } else if (selectedSet.has(seat.label)) {
+            cls += 'seat-reserved selected seat'; content = labelText;
+            attrs = `data-action="toggle-seat" data-label="${seat.label}"`;
+          } else {
+            cls += 'seat-reserved seat'; content = labelText;
+            attrs = `data-action="toggle-seat" data-label="${seat.label}"`;
+          }
+        } else if (seat.type === 'free') {
+          cls += 'seat-free'; content = '自';
+        } else if (seat.type === 'disabled') {
+          cls += 'seat-disabled'; content = '×';
+        } else {
+          cls += 'seat-aisle';
+        }
+      } else if (mode === 'editor') {
+        if (seat.type === 'reserved') { cls += 'seat-reserved'; content = labelText; }
+        else if (seat.type === 'free') { cls += 'seat-free'; content = '自'; }
+        else if (seat.type === 'disabled') { cls += 'seat-disabled'; content = '×'; }
+        else { cls += 'seat-aisle'; }
+        attrs = `data-r="${r}" data-c="${seatCol}" data-action="paint-cell"`;
+      } else if (mode === 'preview') {
+        if (seat.type === 'reserved') { cls += 'seat-reserved'; content = labelText; }
+        else if (seat.type === 'free') { cls += 'seat-free'; content = '自'; }
+        else if (seat.type === 'disabled') { cls += 'seat-disabled'; content = '×'; }
+        else { cls += 'seat-aisle'; }
+      }
+      html += `<td><div class="${cls}" ${attrs}>${content}</div></td>`;
+    }
+    if (mode === 'editor') {
+      html += `<td><div class="row-ctrl"><button class="row-ctrl-btn" data-action="row-col-add" data-r="${r}" aria-label="${rowLabel}行に列追加">+</button><button class="row-ctrl-btn" data-action="row-col-del" data-r="${r}" aria-label="${rowLabel}行の列削除">−</button></div></td>`;
+    }
+    html += '</tr>';
+  }
+  html += '</tbody></table></div>';
+  return html;
+}
+
+/* =========================
+ * View: Form
+ * ========================= */
+function renderForm() {
+  const ev = DATA.events.find(e => e.id === state.selectedEventId);
+  if (!ev) { state.view='home'; return renderHome(); }
+  const totalSelected = state.reservedSelected.length + state.freeQty;
+  return `
+  ${header({ title:'お客様情報', showBack: true })}
+  <main class="max-w-3xl mx-auto px-4 py-4">
+    <div class="card mb-4">
+      <p class="text-sm font-bold mb-1">${escapeHtml(ev.name)}</p>
+      <p class="text-xs text-slate-600">${formatDateTime(ev.datetime)} 開演</p>
+      <div class="mt-3 text-sm">
+        ${state.reservedSelected.length ? `<p>指定席: <span class="font-bold">${state.reservedSelected.slice().sort().join(', ')}</span></p>` : ''}
+        ${state.freeQty > 0 ? `<p>自由席: <span class="font-bold">${state.freeQty}枚</span></p>` : ''}
+        <p class="text-slate-600 mt-1">合計: ${totalSelected}枚</p>
+      </div>
+    </div>
+
+    <div class="card space-y-4">
+      <div>
+        <label class="label">お名前 <span class="text-primary">*</span></label>
+        <input id="f-name" class="input" type="text" value="${escapeHtml(state.form.name)}" placeholder="例：山田 花子" />
+        <p id="f-name-err" class="err hidden">お名前を入力してください。</p>
+      </div>
+      <div>
+        <label class="label">電話番号 <span class="text-primary">*</span></label>
+        <input id="f-phone" class="input" type="tel" value="${escapeHtml(state.form.phone)}" placeholder="例：090-1234-5678" />
+        <p id="f-phone-err" class="err hidden">電話番号を入力してください。</p>
+      </div>
+      <button data-action="to-confirm" class="w-full btn-primary">内容を確認する</button>
+    </div>
+  </main>`;
+}
+
+/* =========================
+ * View: Confirm
+ * ========================= */
+function renderConfirm() {
+  const ev = DATA.events.find(e => e.id === state.selectedEventId);
+  if (!ev) { state.view='home'; return renderHome(); }
+  const venue = venueOf(ev);
+  const totalSelected = state.reservedSelected.length + state.freeQty;
+  const rows = [
+    ['公演', ev.name],
+    ['会場', venue ? venue.name : ''],
+    ['日時', formatDateTime(ev.datetime)+' 開演'],
+    ['お名前', state.form.name],
+    ['電話番号', state.form.phone],
+    ['指定席', state.reservedSelected.length ? state.reservedSelected.slice().sort().join(', ') : '（なし）'],
+    ['自由席', state.freeQty + '枚'],
+    ['合計', totalSelected + '枚'],
+  ];
+  return `
+  ${header({ title:'内容確認', showBack: true })}
+  <main class="max-w-3xl mx-auto px-4 py-4">
+    <div class="card">
+      <table class="w-full text-sm">
+        <tbody>
+        ${rows.map(([k,v]) => `<tr class="border-b border-slate-100 last:border-0"><th class="text-left text-slate-500 font-medium py-2 pr-3 w-28">${k}</th><td class="py-2 font-bold">${escapeHtml(v||'')}</td></tr>`).join('')}
+        </tbody>
+      </table>
+      <button data-action="confirm-reservation" class="w-full btn-primary mt-4">予約を確定する</button>
+      <button data-action="back" class="w-full btn-ghost mt-2">入力に戻る</button>
+    </div>
+  </main>`;
+}
+
+/* =========================
+ * View: Done
+ * ========================= */
+function renderDone() {
+  return `
+  ${header({ title:'予約完了' })}
+  <main class="max-w-3xl mx-auto px-4 py-8">
+    <div class="card text-center">
+      <div class="w-16 h-16 rounded-full bg-success/15 text-success flex items-center justify-center text-3xl mx-auto mb-3">✓</div>
+      <h2 class="text-lg font-bold mb-2">予約を受け付けました</h2>
+      <p class="text-sm text-slate-600 mb-3">予約番号</p>
+      <p class="text-2xl font-bold text-primary mb-6 tracking-wider">${escapeHtml(state.lastReservationId || '')}</p>
+      <button data-action="to-home" class="w-full btn-primary">トップに戻る</button>
+    </div>
+  </main>`;
+}
+
+/* =========================
+ * View: Closed
+ * ========================= */
+function renderClosed() {
+  const ev = DATA.events.find(e => e.id === state.selectedEventId);
+  const status = ev ? eventStatus(ev) : null;
+  const msg = status && status.code === 'pre' ? 'この公演はまもなく受付開始です。' : 'この公演の受付は終了しました。';
+  return `
+  ${header({ title:'受付終了', showBack: true })}
+  <main class="max-w-3xl mx-auto px-4 py-8">
+    <div class="card text-center">
+      <div class="w-16 h-16 rounded-full bg-slate-200 text-slate-500 flex items-center justify-center text-3xl mx-auto mb-3">!</div>
+      <h2 class="text-lg font-bold mb-2">${msg}</h2>
+      ${ev ? `<p class="text-sm text-slate-600">${escapeHtml(ev.name)}</p>` : ''}
+      <button data-action="to-home" class="w-full btn-primary mt-6">トップに戻る</button>
+    </div>
+  </main>`;
+}
+
+/* =========================
+ * View: Admin
+ * ========================= */
+function renderAdmin() {
+  if (!state.admin.authenticated) {
+    return `
+    ${header({ title:'管理画面 ログイン', rightBtn:`<button data-action="to-home" class="tap rounded-xl px-3 py-2 hover:bg-slate-100 font-bold text-sm text-slate-700">顧客画面へ</button>` })}
+    <main class="max-w-md mx-auto px-4 py-8">
+      <div class="card">
+        <label class="label">パスワード</label>
+        <input id="adminPw" class="input" type="password" placeholder="パスワードを入力" />
+        <p id="adminErr" class="err hidden">パスワードが違います。</p>
+        <button data-action="admin-login" class="w-full btn-primary mt-4">ログイン</button>
+      </div>
+    </main>`;
+  }
+  if (state.admin.layoutEditing) {
+    return renderLayoutEditor();
+  }
+  let body = '';
+  if (state.admin.tab === 'venues') body = renderAdminVenues();
+  else if (state.admin.tab === 'events') body = renderAdminEvents();
+  else body = renderAdminReservations();
+
+  return `
+  ${header({ title:'管理画面', rightBtn:`<button data-action="to-home" class="tap rounded-xl px-3 py-2 hover:bg-slate-100 font-bold text-sm text-slate-700">顧客画面へ</button>` })}
+  <main class="max-w-5xl mx-auto px-4 py-4">
+    <div class="tabs mb-4 overflow-x-auto">
+      <button data-action="admin-tab" data-tab="venues" class="tab ${state.admin.tab==='venues'?'active':''}">会場</button>
+      <button data-action="admin-tab" data-tab="events" class="tab ${state.admin.tab==='events'?'active':''}">公演</button>
+      <button data-action="admin-tab" data-tab="reservations" class="tab ${state.admin.tab==='reservations'?'active':''}">予約一覧</button>
+    </div>
+    ${body}
+  </main>`;
+}
+
+function renderAdminVenues() {
+  const rows = DATA.venues.map(v => {
+    const cnt = countSeats(v.defaultLayout);
+    return `
+    <div class="card">
+      <div class="flex justify-between items-start gap-2">
+        <div>
+          <h3 class="font-bold text-base">${escapeHtml(v.name)}</h3>
+          <p class="text-sm text-slate-600">${escapeHtml(v.address || '')}</p>
+          <p class="text-xs text-slate-500 mt-1">総席 ${cnt.total} / 指定 ${cnt.reserved} / 自由 ${cnt.free} / 不可 ${cnt.disabled}</p>
+        </div>
+        <div class="flex flex-col gap-2 shrink-0">
+          <button data-action="edit-venue" data-id="${v.id}" class="tool-btn">編集</button>
+          <button data-action="edit-venue-layout" data-id="${v.id}" class="tool-btn">座席レイアウト</button>
+          <button data-action="delete-venue" data-id="${v.id}" class="tool-btn text-red-600">削除</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  return `
+  <div class="flex justify-between items-center mb-3">
+    <p class="text-sm text-slate-600">登録会場 ${DATA.venues.length}件</p>
+    <button data-action="new-venue" class="btn-primary text-sm py-2 px-3">+ 会場を追加</button>
+  </div>
+  <div class="space-y-3">${rows || '<p class="text-slate-500">会場がありません。</p>'}</div>`;
+}
+
+function renderAdminEvents() {
+  const rows = DATA.events.map(ev => {
+    const v = venueOf(ev);
+    const s = eventStatus(ev);
+    return `
+    <div class="card">
+      <div class="flex justify-between items-start gap-2">
+        <div>
+          <div class="flex items-center gap-2 mb-1"><span class="badge ${s.cls}">${s.label}</span></div>
+          <h3 class="font-bold text-base">${escapeHtml(ev.name)}</h3>
+          <p class="text-sm text-slate-600">${v ? escapeHtml(v.name) : ''}</p>
+          <p class="text-xs text-slate-500">開演 ${formatDateTime(ev.datetime)}</p>
+          <p class="text-xs text-slate-500">受付 ${formatDateTimeShort(ev.openAt)} 〜 ${formatDateTimeShort(ev.closeAt)}</p>
+          <p class="text-xs text-slate-500">上限 ${ev.perPersonLimit}枚 / 予約 ${DATA.reservations.filter(r=>r.eventId===ev.id).length}件</p>
+        </div>
+        <div class="flex flex-col gap-2 shrink-0">
+          <button data-action="edit-event-layout" data-id="${ev.id}" class="tool-btn">座席レイアウト</button>
+          <button data-action="delete-event" data-id="${ev.id}" class="tool-btn text-red-600">削除</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  return `
+  <div class="flex justify-between items-center mb-3">
+    <p class="text-sm text-slate-600">登録公演 ${DATA.events.length}件</p>
+    <button data-action="new-event" class="btn-primary text-sm py-2 px-3">+ 公演を追加</button>
+  </div>
+  <div class="space-y-3">${rows || '<p class="text-slate-500">公演がありません。</p>'}</div>`;
+}
+
+function renderAdminReservations() {
+  const f = state.admin.reservationFilter;
+  const list = DATA.reservations
+    .filter(r => !f.name || r.name.includes(f.name))
+    .filter(r => !f.phone || r.phone.includes(f.phone))
+    .filter(r => !f.eventId || r.eventId === f.eventId)
+    .slice().sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+  const evOpts = ['<option value="">すべての公演</option>'].concat(
+    DATA.events.map(e => `<option value="${e.id}" ${f.eventId===e.id?'selected':''}>${escapeHtml(e.name)}</option>`)
+  ).join('');
+
+  const rows = list.map(r => {
+    const ev = DATA.events.find(e => e.id === r.eventId);
+    const seats = (r.seats && r.seats.length) ? r.seats.join(', ') : '（自由席のみ）';
+    return `
+    <tr class="border-b border-slate-100">
+      <td class="py-2 px-2 text-xs font-mono">${escapeHtml(r.id)}</td>
+      <td class="py-2 px-2 text-sm">${ev ? escapeHtml(ev.name) : '(削除済み)'}</td>
+      <td class="py-2 px-2 text-sm">${escapeHtml(r.name)}</td>
+      <td class="py-2 px-2 text-sm">${escapeHtml(r.phone)}</td>
+      <td class="py-2 px-2 text-xs">${escapeHtml(seats)}</td>
+      <td class="py-2 px-2 text-sm text-center">${r.quantity}</td>
+      <td class="py-2 px-2 text-xs">${formatDateTimeShort(r.createdAt)}</td>
+      <td class="py-2 px-2"><button data-action="delete-reservation" data-id="${r.id}" class="text-red-600 text-sm">削除</button></td>
+    </tr>`;
+  }).join('');
+
+  return `
+  <div class="card mb-3">
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-2">
+      <div><label class="label">氏名で絞り込み</label><input id="rf-name" class="input" placeholder="お名前" value="${escapeHtml(f.name)}" /></div>
+      <div><label class="label">電話で絞り込み</label><input id="rf-phone" class="input" placeholder="電話番号" value="${escapeHtml(f.phone)}" /></div>
+      <div><label class="label">公演で絞り込み</label><select id="rf-event" class="input">${evOpts}</select></div>
+      <div class="flex items-end gap-2">
+        <button data-action="apply-rfilter" class="btn-primary text-sm py-2 px-3">絞り込む</button>
+        <button data-action="clear-rfilter" class="btn-ghost text-sm py-2 px-3">クリア</button>
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="flex justify-between items-center mb-3">
+      <p class="text-sm text-slate-600">予約 ${list.length}件</p>
+      <button data-action="download-csv" class="btn-primary text-sm py-2 px-3">データをダウンロード</button>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-left">
+        <thead><tr class="border-b-2 border-slate-200 text-xs text-slate-500">
+          <th class="py-2 px-2">予約番号</th><th class="py-2 px-2">公演</th><th class="py-2 px-2">氏名</th><th class="py-2 px-2">電話</th><th class="py-2 px-2">座席</th><th class="py-2 px-2 text-center">枚数</th><th class="py-2 px-2">予約日時</th><th class="py-2 px-2"></th>
+        </tr></thead>
+        <tbody>${rows || '<tr><td colspan="8" class="text-center text-slate-400 py-6">予約がありません。</td></tr>'}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+/* =========================
+ * View: Layout Editor
+ * ========================= */
+function getEditingLayout() {
+  const le = state.admin.layoutEditing;
+  if (!le) return null;
+  if (le.type === 'venueDefault') {
+    const v = DATA.venues.find(x => x.id === le.id);
+    return v ? v.defaultLayout : null;
+  } else if (le.type === 'event') {
+    const ev = DATA.events.find(x => x.id === le.id);
+    return ev ? ev.layout : null;
+  }
+  return null;
+}
+function setEditingLayout(layout) {
+  const le = state.admin.layoutEditing;
+  if (!le) return;
+  if (le.type === 'venueDefault') {
+    const v = DATA.venues.find(x => x.id === le.id);
+    if (v) v.defaultLayout = layout;
+  } else if (le.type === 'event') {
+    const ev = DATA.events.find(x => x.id === le.id);
+    if (ev) ev.layout = layout;
+  }
+}
+
+function snapshotForUndo() {
+  const layout = getEditingLayout();
+  if (!layout) return;
+  state.admin.history.push(JSON.parse(JSON.stringify(layout)));
+  if (state.admin.history.length > 50) state.admin.history.shift();
+}
+function undo() {
+  if (!state.admin.history.length) { toast('元に戻す操作がありません'); return; }
+  const prev = state.admin.history.pop();
+  setEditingLayout(prev);
+  render();
+}
+
+function renderLayoutEditor() {
+  const layout = getEditingLayout();
+  if (!layout) { state.admin.layoutEditing = null; return renderAdmin(); }
+  const le = state.admin.layoutEditing;
+  let title = '座席レイアウト編集';
+  if (le.type === 'venueDefault') {
+    const v = DATA.venues.find(x => x.id === le.id);
+    if (v) title = `${v.name}：座席レイアウト`;
+  } else if (le.type === 'event') {
+    const ev = DATA.events.find(x => x.id === le.id);
+    if (ev) title = `${ev.name}：座席レイアウト`;
+  }
+  const cnt = countSeats(layout);
+  const tool = state.admin.tool;
+
+  const aisleList = (layout.aisles || []).map(a => `
+    <div class="flex justify-between items-center py-2 border-b border-slate-100 last:border-0">
+      <div>
+        <p class="text-sm font-bold">${escapeHtml(a.name||'(無題)')}</p>
+        <p class="text-xs text-slate-500">行 ${a.startRow+1}〜${a.endRow+1} / 列 ${a.startCol+1}〜${a.endCol+1} （${a.type==='horizontal'?'横':'縦'}）</p>
+      </div>
+      <button data-action="delete-aisle" data-id="${a.id}" class="tool-btn text-red-600">削除</button>
+    </div>`).join('');
+
+  return `
+  ${header({ title, showBack: true, rightBtn:`<button data-action="save-layout" class="tap rounded-xl px-3 py-2 bg-primary text-white font-bold text-sm">保存</button>` })}
+  <main class="max-w-6xl mx-auto px-4 py-4 pb-32">
+    <div class="card mb-4">
+      <h3 class="font-bold text-sm mb-2">ツール</h3>
+      <div class="flex flex-wrap gap-2">
+        <button data-action="set-tool" data-tool="select" class="tool-btn ${tool==='select'?'active':''}">選択</button>
+        <button data-action="set-tool" data-tool="paintReserved" class="tool-btn ${tool==='paintReserved'?'active':''}">指定席ペイント</button>
+        <button data-action="set-tool" data-tool="paintFree" class="tool-btn ${tool==='paintFree'?'active':''}">自由席ペイント</button>
+        <button data-action="set-tool" data-tool="paintDisabled" class="tool-btn ${tool==='paintDisabled'?'active':''}">使用不可ペイント</button>
+        <button data-action="set-tool" data-tool="paintAisle" class="tool-btn ${tool==='paintAisle'?'active':''}">通路</button>
+        <button data-action="set-tool" data-tool="erase" class="tool-btn ${tool==='erase'?'active':''}">消しゴム</button>
+        <button data-action="undo" class="tool-btn">元に戻す</button>
+        <button data-action="toggle-symmetry" class="tool-btn ${state.admin.symmetry?'active':''}">左右対称: ${state.admin.symmetry?'ON':'OFF'}</button>
+      </div>
+    </div>
+
+    <div class="card mb-4">
+      <h3 class="font-bold text-sm mb-2">行・列の操作</h3>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+        <button data-action="row-add-front" class="tool-btn">+ 前方に行追加</button>
+        <button data-action="row-del-back" class="tool-btn">− 後方の行削除</button>
+        <button data-action="col-add-left" class="tool-btn">+ 左に列追加</button>
+        <button data-action="col-del-left" class="tool-btn">− 左の列削除</button>
+        <button data-action="col-add-right" class="tool-btn">+ 右に列追加</button>
+        <button data-action="col-del-right" class="tool-btn">− 右の列削除</button>
+      </div>
+    </div>
+
+    <div class="card mb-4 overflow-hidden">
+      <div class="stage-bar">STAGE</div>
+      <div class="scroll-x text-center">${renderSeatGrid(layout, { mode:'editor' })}</div>
+    </div>
+
+    <div class="card mb-4">
+      <div class="flex justify-between items-center mb-2 gap-2 flex-wrap">
+        <h3 class="font-bold text-sm">通路リスト</h3>
+        <button data-action="add-aisle" class="tool-btn">+ 行/列を指定して追加</button>
+      </div>
+      <p class="text-xs text-slate-500 mb-2">ツールバーの「通路」を選び、グリッド上をドラッグして範囲指定もできます。</p>
+      ${aisleList || '<p class="text-xs text-slate-500">通路は登録されていません。</p>'}
+    </div>
+
+    <div class="card mb-4">
+      <h3 class="font-bold text-sm mb-2">集計</h3>
+      <div class="grid grid-cols-4 gap-2 text-center">
+        <div class="bg-base rounded-xl py-2"><p class="text-xs text-slate-500">総席数</p><p class="text-xl font-bold">${cnt.total}</p></div>
+        <div class="bg-base rounded-xl py-2"><p class="text-xs text-slate-500">指定席</p><p class="text-xl font-bold text-primary">${cnt.reserved}</p></div>
+        <div class="bg-base rounded-xl py-2"><p class="text-xs text-slate-500">自由席</p><p class="text-xl font-bold text-amber-600">${cnt.free}</p></div>
+        <div class="bg-base rounded-xl py-2"><p class="text-xs text-slate-500">使用不可</p><p class="text-xl font-bold text-slate-500">${cnt.disabled}</p></div>
+      </div>
+    </div>
+  </main>`;
+}
+
+/* =========================
+ * Layout mutation helpers
+ * ========================= */
+function relabelLayout(layout) {
+  ensureRowCols(layout);
+  layout.seats.forEach(s => {
+    if (s.type !== 'aisle') {
+      s.label = makeAlphaLabel(s.row, s.col);
+    } else {
+      s.label = '';
+    }
+  });
+}
+
+function paintCell(layout, r, c) {
+  const t = state.admin.tool;
+  const seat = layout.seats.find(s => s.row===r && s.col===c);
+  if (!seat) return;
+  if (t === 'paintReserved') seat.type = 'reserved';
+  else if (t === 'paintFree') seat.type = 'free';
+  else if (t === 'paintDisabled') seat.type = 'disabled';
+  else if (t === 'paintAisle') seat.type = 'aisle';
+  else if (t === 'erase') seat.type = 'reserved';
+  relabelLayout(layout);
+  if (state.admin.symmetry) {
+    const rowMax = rowColCount(layout, r);
+    const mirrorC = (rowMax - 1) - c;
+    if (mirrorC !== c && mirrorC >= 0) {
+      const seat2 = layout.seats.find(s => s.row===r && s.col===mirrorC);
+      if (seat2) {
+        seat2.type = seat.type;
+      }
+      relabelLayout(layout);
+    }
+  }
+}
+
+function addRowFront(layout) {
+  ensureRowCols(layout);
+  // shift all rows down by 1, then insert row 0
+  layout.seats.forEach(s => s.row += 1);
+  // shift rowCols mapping
+  const newRowCols = {};
+  Object.keys(layout.rowCols).forEach(k => {
+    newRowCols[parseInt(k,10)+1] = layout.rowCols[k];
+  });
+  newRowCols[0] = layout.cols;
+  layout.rowCols = newRowCols;
+  for (let c=0;c<layout.cols;c++) layout.seats.push({ row:0, col:c, type:'reserved', label:'' });
+  layout.rows += 1;
+  (layout.aisles||[]).forEach(a => { a.startRow += 1; a.endRow += 1; });
+  relabelLayout(layout);
+}
+function delRowBack(layout) {
+  if (layout.rows <= 1) return;
+  ensureRowCols(layout);
+  const last = layout.rows - 1;
+  layout.seats = layout.seats.filter(s => s.row !== last);
+  delete layout.rowCols[last];
+  layout.rows -= 1;
+  layout.aisles = (layout.aisles||[]).filter(a => !(a.startRow > last || a.endRow > last));
+  // clamp
+  (layout.aisles||[]).forEach(a => {
+    if (a.endRow > layout.rows-1) a.endRow = layout.rows-1;
+  });
+  recomputeCols(layout);
+  relabelLayout(layout);
+}
+function addColLeft(layout) {
+  ensureRowCols(layout);
+  layout.seats.forEach(s => s.col += 1);
+  for (let r=0;r<layout.rows;r++) {
+    layout.seats.push({ row:r, col:0, type:'reserved', label:'' });
+    layout.rowCols[r] = (layout.rowCols[r] || 0) + 1;
+  }
+  layout.cols += 1;
+  if (state.admin.symmetry) {
+    // also add right
+    for (let r=0;r<layout.rows;r++) {
+      layout.seats.push({ row:r, col:layout.cols, type:'reserved', label:'' });
+      layout.rowCols[r] = (layout.rowCols[r] || 0) + 1;
+    }
+    layout.cols += 1;
+  }
+  relabelLayout(layout);
+}
+function delColLeft(layout) {
+  if (layout.cols <= 1) return;
+  ensureRowCols(layout);
+  layout.seats = layout.seats.filter(s => s.col !== 0);
+  layout.seats.forEach(s => s.col -= 1);
+  for (let r=0;r<layout.rows;r++) {
+    if (layout.rowCols[r] > 0) layout.rowCols[r] -= 1;
+  }
+  layout.cols -= 1;
+  // Clamp aisle endCol to new bounds; positions stay absolute.
+  (layout.aisles||[]).forEach(a => { if (a.endCol > layout.cols-1) a.endCol = layout.cols-1; });
+  if (state.admin.symmetry) {
+    if (layout.cols > 0) {
+      const last = layout.cols - 1;
+      layout.seats = layout.seats.filter(s => s.col !== last);
+      for (let r=0;r<layout.rows;r++) {
+        if (layout.rowCols[r] > last) layout.rowCols[r] = last;
+      }
+      layout.cols -= 1;
+      (layout.aisles||[]).forEach(a => { if (a.endCol > layout.cols-1) a.endCol = layout.cols-1; });
+    }
+  }
+  recomputeCols(layout);
+  relabelLayout(layout);
+}
+function addColRight(layout) {
+  ensureRowCols(layout);
+  for (let r=0;r<layout.rows;r++) {
+    layout.seats.push({ row:r, col:layout.cols, type:'reserved', label:'' });
+    layout.rowCols[r] = (layout.rowCols[r] || 0) + 1;
+  }
+  layout.cols += 1;
+  if (state.admin.symmetry) {
+    // also add left
+    layout.seats.forEach(s => s.col += 1);
+    for (let r=0;r<layout.rows;r++) {
+      layout.seats.push({ row:r, col:0, type:'reserved', label:'' });
+      layout.rowCols[r] = (layout.rowCols[r] || 0) + 1;
+    }
+    layout.cols += 1;
+  }
+  relabelLayout(layout);
+}
+function delColRight(layout) {
+  if (layout.cols <= 1) return;
+  ensureRowCols(layout);
+  const last = layout.cols - 1;
+  layout.seats = layout.seats.filter(s => s.col !== last);
+  for (let r=0;r<layout.rows;r++) {
+    if (layout.rowCols[r] > last) layout.rowCols[r] = last;
+  }
+  layout.cols -= 1;
+  // Clamp aisle endCol to new bounds; positions stay absolute.
+  (layout.aisles||[]).forEach(a => { if (a.endCol > layout.cols-1) a.endCol = layout.cols-1; });
+  if (state.admin.symmetry) {
+    if (layout.cols > 0) {
+      layout.seats = layout.seats.filter(s => s.col !== 0);
+      layout.seats.forEach(s => s.col -= 1);
+      for (let r=0;r<layout.rows;r++) {
+        if (layout.rowCols[r] > 0) layout.rowCols[r] -= 1;
+      }
+      layout.cols -= 1;
+      (layout.aisles||[]).forEach(a => { if (a.endCol > layout.cols-1) a.endCol = layout.cols-1; });
+    }
+  }
+  recomputeCols(layout);
+  relabelLayout(layout);
+}
+
+// Row-level column mutations: independent +/- per row (no symmetry coupling).
+function rowAddCol(layout, r) {
+  ensureRowCols(layout);
+  if (r < 0 || r >= layout.rows) return;
+  const cur = layout.rowCols[r] || 0;
+  layout.seats.push({ row:r, col:cur, type:'reserved', label:'' });
+  layout.rowCols[r] = cur + 1;
+  if (layout.rowCols[r] > layout.cols) layout.cols = layout.rowCols[r];
+  relabelLayout(layout);
+}
+function rowDelCol(layout, r) {
+  ensureRowCols(layout);
+  if (r < 0 || r >= layout.rows) return;
+  const cur = layout.rowCols[r] || 0;
+  if (cur <= 1) return; // keep at least 1 column per row
+  const lastCol = cur - 1;
+  layout.seats = layout.seats.filter(s => !(s.row === r && s.col === lastCol));
+  layout.rowCols[r] = lastCol;
+  recomputeCols(layout);
+  // clamp aisles affected
+  (layout.aisles||[]).forEach(a => { if (a.endCol > layout.cols-1) a.endCol = layout.cols-1; });
+  relabelLayout(layout);
+}
+
+function applyAisle(layout, aisle) {
+  // Aisles are rendered from layout.aisles directly using absolute column positions,
+  // so no seat mutation is needed here. Only refresh labels for safety.
+  relabelLayout(layout);
+}
+
+/* =========================
+ * Modals
+ * ========================= */
+function openModal(html) {
+  document.getElementById('modalRoot').innerHTML = `
+  <div class="fixed inset-0 modal-bg z-40 flex items-center justify-center px-4 py-8" data-action="close-modal-bg">
+    <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-auto" data-stop>
+      ${html}
+    </div>
+  </div>`;
+  document.getElementById('modalRoot').querySelectorAll('[data-stop]').forEach(el => el.addEventListener('click', e => e.stopPropagation()));
+  document.getElementById('modalRoot').querySelector('[data-action="close-modal-bg"]').addEventListener('click', closeModal);
+  bindEvents();
+}
+function closeModal() {
+  document.getElementById('modalRoot').innerHTML = '';
+}
+
+function openVenueModal(venue) {
+  const isNew = !venue;
+  const v = venue || { id: '', name:'', address:'' };
+  openModal(`
+    <div class="p-5">
+      <h3 class="font-bold text-base mb-3">${isNew?'会場を追加':'会場を編集'}</h3>
+      <div class="space-y-3">
+        <div><label class="label">会場名</label><input id="vm-name" class="input" value="${escapeHtml(v.name)}" /></div>
+        <div><label class="label">住所</label><input id="vm-addr" class="input" value="${escapeHtml(v.address||'')}" /></div>
+        <p id="vm-err" class="err hidden">会場名を入力してください。</p>
+      </div>
+      <div class="flex gap-2 mt-4">
+        <button data-action="venue-modal-save" data-id="${escapeHtml(v.id)}" data-new="${isNew?1:0}" class="btn-primary flex-1">保存</button>
+        <button data-action="close-modal" class="btn-ghost flex-1">キャンセル</button>
+      </div>
+    </div>
+  `);
+}
+
+function openEventModal() {
+  // 3-step wizard inside one modal
+  state.eventWizard = { step: 1, name:'', datetime:'', venueId: DATA.venues[0]?.id || '', perPersonLimit: 4, templateMode: 'venueDefault', openAt:'', closeAt:'' };
+  renderEventWizard();
+}
+function renderEventWizard() {
+  const w = state.eventWizard;
+  const venueOpts = DATA.venues.map(v => `<option value="${v.id}" ${w.venueId===v.id?'selected':''}>${escapeHtml(v.name)}</option>`).join('');
+  let body = '';
+  if (w.step === 1) {
+    body = `
+      <h3 class="font-bold text-base mb-3">公演を追加（1/3 基本情報）</h3>
+      <div class="space-y-3">
+        <div><label class="label">公演名</label><input id="ew-name" class="input" value="${escapeHtml(w.name)}" placeholder="サンプル公演 2026年6月15日 14:00開演" /></div>
+        <div><label class="label">日時</label><input id="ew-dt" type="datetime-local" class="input" value="${escapeHtml(w.datetime)}" /></div>
+        <div><label class="label">会場</label><select id="ew-venue" class="input">${venueOpts}</select></div>
+        <div><label class="label">1人あたり予約上限枚数</label><input id="ew-limit" type="number" min="1" class="input" value="${w.perPersonLimit}" /></div>
+        <p id="ew-err" class="err hidden">必須項目を入力してください。</p>
+      </div>
+      <div class="flex gap-2 mt-4">
+        <button data-action="ew-next" data-step="2" class="btn-primary flex-1">次へ</button>
+        <button data-action="close-modal" class="btn-ghost flex-1">キャンセル</button>
+      </div>`;
+  } else if (w.step === 2) {
+    body = `
+      <h3 class="font-bold text-base mb-3">公演を追加（2/3 座席レイアウト）</h3>
+      <div class="space-y-3">
+        <label class="flex items-center gap-3 p-3 border rounded-xl cursor-pointer ${w.templateMode==='venueDefault'?'border-primary bg-red-50':'border-slate-200'}">
+          <input type="radio" name="tpl" value="venueDefault" ${w.templateMode==='venueDefault'?'checked':''} data-action="ew-tpl" />
+          <span class="text-sm">会場のデフォルトレイアウトを複製</span>
+        </label>
+        <label class="flex items-center gap-3 p-3 border rounded-xl cursor-pointer ${w.templateMode==='blank'?'border-primary bg-red-50':'border-slate-200'}">
+          <input type="radio" name="tpl" value="blank" ${w.templateMode==='blank'?'checked':''} data-action="ew-tpl" />
+          <span class="text-sm">白紙（10×10）から作成</span>
+        </label>
+      </div>
+      <div class="flex gap-2 mt-4">
+        <button data-action="ew-back" class="btn-ghost flex-1">戻る</button>
+        <button data-action="ew-next" data-step="3" class="btn-primary flex-1">次へ</button>
+      </div>`;
+  } else {
+    body = `
+      <h3 class="font-bold text-base mb-3">公演を追加（3/3 受付期間）</h3>
+      <div class="space-y-3">
+        <div><label class="label">受付開始日時</label><input id="ew-open" type="datetime-local" class="input" value="${escapeHtml(w.openAt)}" /></div>
+        <div><label class="label">受付終了日時</label><input id="ew-close" type="datetime-local" class="input" value="${escapeHtml(w.closeAt)}" /></div>
+        <p id="ew-err" class="err hidden">必須項目を入力してください。</p>
+      </div>
+      <div class="flex gap-2 mt-4">
+        <button data-action="ew-back" class="btn-ghost flex-1">戻る</button>
+        <button data-action="ew-save" class="btn-primary flex-1">公演を作成</button>
+      </div>`;
+  }
+  openModal(`<div class="p-5">${body}</div>`);
+}
+
+function openAisleModal(layout) {
+  let rowOptions = '';
+  for (let r = 0; r < layout.rows; r++) {
+    const label = makeAlphaLabel(r, 0).replace(/\d+$/,'');
+    rowOptions += `<option value="${r}">${label}行</option>`;
+  }
+  let colOptions = '';
+  for (let c = 0; c < layout.cols; c++) {
+    colOptions += `<option value="${c}">${c + 1}列</option>`;
+  }
+  const rowOptionsEnd = rowOptions.replace(
+    `value="${layout.rows - 1}"`,
+    `value="${layout.rows - 1}" selected`
+  );
+  const colOptionsEnd = colOptions.replace(
+    `value="${layout.cols - 1}"`,
+    `value="${layout.cols - 1}" selected`
+  );
+
+  openModal(`
+    <div class="p-5">
+      <h3 class="font-bold text-base mb-3">通路を追加</h3>
+      <div class="space-y-4">
+        <div>
+          <label class="label">通路の向き</label>
+          <div class="flex gap-3">
+            <button type="button" id="am-dir-h" onclick="aisleModalSetDir('horizontal')"
+              class="flex-1 py-3 rounded-xl font-bold border-2 border-primary bg-red-50 text-primary text-sm">
+              横の通路<br><span class="font-normal text-xs text-slate-500">行全体を通路にする</span>
+            </button>
+            <button type="button" id="am-dir-v" onclick="aisleModalSetDir('vertical')"
+              class="flex-1 py-3 rounded-xl font-bold border-2 border-slate-200 bg-white text-slate-500 text-sm">
+              縦の通路<br><span class="font-normal text-xs text-slate-500">列全体を通路にする</span>
+            </button>
+          </div>
+          <input type="hidden" id="am-dir" value="horizontal" />
+        </div>
+
+        <div id="am-row-block">
+          <label class="label">対象の行</label>
+          <select id="am-row-sel" class="input">${rowOptions}</select>
+          <label class="label mt-3">列の範囲</label>
+          <div class="flex items-center gap-2">
+            <select id="am-col-start" class="input flex-1">${colOptions}</select>
+            <span class="text-slate-500 text-sm">〜</span>
+            <select id="am-col-end" class="input flex-1">${colOptionsEnd}</select>
+          </div>
+        </div>
+
+        <div id="am-col-block" class="hidden">
+          <label class="label">対象の列</label>
+          <select id="am-col-sel" class="input">${colOptions}</select>
+          <label class="label mt-3">行の範囲</label>
+          <div class="flex items-center gap-2">
+            <select id="am-row-start" class="input flex-1">${rowOptions}</select>
+            <span class="text-slate-500 text-sm">〜</span>
+            <select id="am-row-end" class="input flex-1">${rowOptionsEnd}</select>
+          </div>
+        </div>
+
+        <div>
+          <label class="label">通路名（省略可）</label>
+          <input id="am-name" class="input" placeholder="例：中央通路" />
+        </div>
+        <p id="am-err" class="err hidden">入力に誤りがあります。</p>
+      </div>
+      <div class="flex gap-2 mt-4">
+        <button data-action="aisle-save" class="btn-primary flex-1">追加</button>
+        <button data-action="close-modal" class="btn-ghost flex-1">キャンセル</button>
+      </div>
+    </div>
+  `);
+}
+
+function aisleModalSetDir(dir) {
+  document.getElementById('am-dir').value = dir;
+  const isH = dir === 'horizontal';
+  document.getElementById('am-row-block').classList.toggle('hidden', !isH);
+  document.getElementById('am-col-block').classList.toggle('hidden', isH);
+  document.getElementById('am-dir-h').className =
+    `flex-1 py-3 rounded-xl font-bold border-2 text-sm ${isH ? 'border-primary bg-red-50 text-primary' : 'border-slate-200 bg-white text-slate-500'}`;
+  document.getElementById('am-dir-v').className =
+    `flex-1 py-3 rounded-xl font-bold border-2 text-sm ${!isH ? 'border-primary bg-red-50 text-primary' : 'border-slate-200 bg-white text-slate-500'}`;
+}
+window.aisleModalSetDir = aisleModalSetDir;
+
+function openAisleNameModal(rect) {
+  // rect: {startRow, endRow, startCol, endCol}
+  state.pendingAisleRect = rect;
+  const span = `行 ${rect.startRow+1}〜${rect.endRow+1} / 列 ${rect.startCol+1}〜${rect.endCol+1}`;
+  openModal(`
+    <div class="p-5">
+      <h3 class="font-bold text-base mb-3">通路の名前を入力</h3>
+      <p class="text-sm text-slate-600 mb-3">範囲: ${span}</p>
+      <div><label class="label">通路名（空欄なら「通路」）</label><input id="anm-name" class="input" placeholder="例：中央通路" autofocus /></div>
+      <div class="flex gap-2 mt-4">
+        <button data-action="aisle-drag-save" class="btn-primary flex-1">この範囲を通路にする</button>
+        <button data-action="aisle-drag-cancel" class="btn-ghost flex-1">キャンセル</button>
+      </div>
+    </div>
+  `);
+  setTimeout(() => { const el = document.getElementById('anm-name'); if (el) el.focus(); }, 0);
+}
+
+function openConfirmModal(message, onYes, danger=true) {
+  openModal(`
+    <div class="p-5">
+      <h3 class="font-bold text-base mb-3">確認</h3>
+      <p class="text-sm text-slate-700 mb-4">${escapeHtml(message)}</p>
+      <div class="flex gap-2">
+        <button id="confirm-yes" class="${danger?'bg-red-600 text-white':'btn-primary'} font-bold py-3 rounded-xl flex-1">はい</button>
+        <button data-action="close-modal" class="btn-ghost flex-1">キャンセル</button>
+      </div>
+    </div>
+  `);
+  setTimeout(() => {
+    const y = document.getElementById('confirm-yes');
+    if (y) y.addEventListener('click', () => { closeModal(); onYes(); });
+  }, 0);
+}
+
+/* =========================
+ * Event bindings
+ * ========================= */
+function bindEvents() {
+  const root = document.getElementById('app');
+  const modalRoot = document.getElementById('modalRoot');
+  [root, modalRoot].forEach(container => {
+    if (!container) return;
+    container.querySelectorAll('[data-action]').forEach(el => {
+      el.addEventListener('click', onAction);
+    });
+  });
+}
+
+function onAction(e) {
+  const el = e.currentTarget;
+  const action = el.getAttribute('data-action');
+  const id = el.getAttribute('data-id');
+
+  switch (action) {
+    case 'back': handleBack(); break;
+    case 'to-home': resetSelection(); state.view = 'home'; render(); break;
+    case 'open-admin': state.view = 'admin'; render(); break;
+    case 'select-event': openEvent(id); break;
+    case 'toggle-seat': toggleSeat(el.getAttribute('data-label')); break;
+    case 'free-plus': freeAdjust(+1); break;
+    case 'free-minus': freeAdjust(-1); break;
+    case 'to-form': goToForm(); break;
+    case 'to-confirm': goToConfirm(); break;
+    case 'confirm-reservation': confirmReservation(); break;
+    case 'admin-login': adminLogin(); break;
+    case 'admin-tab': state.admin.tab = el.getAttribute('data-tab'); render(); break;
+    case 'new-venue': openVenueModal(null); break;
+    case 'edit-venue': openVenueModal(DATA.venues.find(v=>v.id===id)); break;
+    case 'venue-modal-save': saveVenueModal(id, el.getAttribute('data-new')==='1'); break;
+    case 'delete-venue': askDeleteVenue(id); break;
+    case 'edit-venue-layout': enterLayoutEditor({type:'venueDefault', id}); break;
+    case 'edit-event-layout': enterLayoutEditor({type:'event', id}); break;
+    case 'new-event': openEventModal(); break;
+    case 'ew-next': eventWizardNext(parseInt(el.getAttribute('data-step'),10)); break;
+    case 'ew-back': eventWizardBack(); break;
+    case 'ew-tpl': state.eventWizard.templateMode = el.value; renderEventWizard(); break;
+    case 'ew-save': saveEventFromWizard(); break;
+    case 'delete-event': askDeleteEvent(id); break;
+    case 'apply-rfilter': applyReservationFilter(); break;
+    case 'clear-rfilter': state.admin.reservationFilter = {name:'',phone:'',eventId:''}; render(); break;
+    case 'download-csv': downloadCSV(); break;
+    case 'delete-reservation': askDeleteReservation(id); break;
+    case 'set-tool': state.admin.tool = el.getAttribute('data-tool'); render(); break;
+    case 'undo': undo(); break;
+    case 'toggle-symmetry': state.admin.symmetry = !state.admin.symmetry; render(); break;
+    case 'row-add-front': snapshotForUndo(); addRowFront(getEditingLayout()); render(); break;
+    case 'row-del-back': snapshotForUndo(); delRowBack(getEditingLayout()); render(); break;
+    case 'col-add-left': snapshotForUndo(); addColLeft(getEditingLayout()); render(); break;
+    case 'col-del-left': snapshotForUndo(); delColLeft(getEditingLayout()); render(); break;
+    case 'col-add-right': snapshotForUndo(); addColRight(getEditingLayout()); render(); break;
+    case 'col-del-right': snapshotForUndo(); delColRight(getEditingLayout()); render(); break;
+    case 'row-col-add': snapshotForUndo(); rowAddCol(getEditingLayout(), parseInt(el.getAttribute('data-r'),10)); render(); break;
+    case 'row-col-del': snapshotForUndo(); rowDelCol(getEditingLayout(), parseInt(el.getAttribute('data-r'),10)); render(); break;
+    case 'paint-cell': handlePaint(el); break;
+    case 'add-aisle': openAisleModal(getEditingLayout()); break;
+    case 'aisle-save': saveAisle(); break;
+    case 'aisle-drag-save': saveDraggedAisle(); break;
+    case 'aisle-drag-cancel': state.pendingAisleRect = null; closeModal(); break;
+    case 'delete-aisle': removeAisle(id); break;
+    case 'save-layout': saveLayout(); break;
+    case 'close-modal': closeModal(); break;
+    default: break;
+  }
+}
+
+function handleBack() {
+  if (state.view === 'seats') { resetSelection(); state.view = 'home'; }
+  else if (state.view === 'form') { state.view = 'seats'; }
+  else if (state.view === 'confirm') { state.view = 'form'; }
+  else if (state.view === 'closed') { resetSelection(); state.view = 'home'; }
+  else if (state.view === 'admin') {
+    if (state.admin.layoutEditing) { state.admin.layoutEditing = null; state.admin.history = []; }
+    else { state.view = 'home'; }
+  }
+  render();
+}
+
+function resetSelection() {
+  state.reservedSelected = [];
+  state.freeQty = 0;
+  state.form = { name:'', phone:'' };
+}
+
+function openEvent(id) {
+  const ev = DATA.events.find(e => e.id === id);
+  if (!ev) return;
+  state.selectedEventId = id;
+  state.reservedSelected = [];
+  state.freeQty = 0;
+  const status = eventStatus(ev);
+  if (status.code !== 'open') { state.view = 'closed'; }
+  else { state.view = 'seats'; }
+  render();
+}
+
+function toggleSeat(label) {
+  const idx = state.reservedSelected.indexOf(label);
+  const ev = DATA.events.find(e => e.id === state.selectedEventId);
+  const limit = ev?.perPersonLimit || 4;
+  if (idx >= 0) {
+    state.reservedSelected.splice(idx, 1);
+  } else {
+    if (state.reservedSelected.length + state.freeQty >= limit) {
+      toast(`1人あたり${limit}枚までです`);
+      return;
+    }
+    state.reservedSelected.push(label);
+  }
+  render();
+}
+
+function freeAdjust(delta) {
+  const ev = DATA.events.find(e => e.id === state.selectedEventId);
+  const limit = ev?.perPersonLimit || 4;
+  const cnt = countSeats(ev.layout);
+  const used = getFreeUsedCount(ev.id);
+  const remain = Math.max(0, cnt.free - used);
+  const next = state.freeQty + delta;
+  if (next < 0) return;
+  if (next > remain) { toast('自由席の残席を超えています'); return; }
+  if (state.reservedSelected.length + next > limit) { toast(`1人あたり${limit}枚までです`); return; }
+  state.freeQty = next;
+  render();
+}
+
+function goToForm() {
+  if (state.reservedSelected.length + state.freeQty === 0) return;
+  state.view = 'form';
+  render();
+}
+function goToConfirm() {
+  const name = document.getElementById('f-name').value.trim();
+  const phone = document.getElementById('f-phone').value.trim();
+  let ok = true;
+  if (!name) { document.getElementById('f-name-err').classList.remove('hidden'); ok = false; } else { document.getElementById('f-name-err').classList.add('hidden'); }
+  if (!phone) { document.getElementById('f-phone-err').classList.remove('hidden'); ok = false; } else { document.getElementById('f-phone-err').classList.add('hidden'); }
+  if (!ok) { toast('入力内容を確認してください'); return; }
+  state.form = { name, phone };
+  state.view = 'confirm';
+  render();
+}
+
+function confirmReservation() {
+  const ev = DATA.events.find(e => e.id === state.selectedEventId);
+  if (!ev) return;
+  // double-check capacity in case of concurrent edits
+  const taken = getReservedTakenLabels(ev.id);
+  const overlap = state.reservedSelected.filter(l => taken.has(l));
+  if (overlap.length) { toast('選択した座席が他のお客様と重複しました'); state.view='seats'; render(); return; }
+  const cnt = countSeats(ev.layout);
+  const used = getFreeUsedCount(ev.id);
+  if (state.freeQty > Math.max(0, cnt.free - used)) { toast('自由席の残席を超えています'); state.view='seats'; render(); return; }
+
+  const resId = 'R' + Date.now().toString().slice(-6) + Math.floor(Math.random()*900+100);
+  const res = {
+    id: resId,
+    eventId: ev.id,
+    name: state.form.name,
+    phone: state.form.phone,
+    seats: state.reservedSelected.slice().sort(),
+    quantity: state.reservedSelected.length + state.freeQty,
+    createdAt: new Date().toISOString()
+  };
+  DATA.reservations.push(res);
+  saveData(DATA);
+  state.lastReservationId = resId;
+  state.view = 'done';
+  toast('予約を確定しました');
+  render();
+}
+
+/* =========================
+ * Admin actions
+ * ========================= */
+function adminLogin() {
+  const pw = document.getElementById('adminPw').value;
+  if (pw === 'admin123') {
+    state.admin.authenticated = true;
+    render();
+  } else {
+    document.getElementById('adminErr').classList.remove('hidden');
+  }
+}
+
+function saveVenueModal(id, isNew) {
+  const name = document.getElementById('vm-name').value.trim();
+  const addr = document.getElementById('vm-addr').value.trim();
+  if (!name) { document.getElementById('vm-err').classList.remove('hidden'); return; }
+  if (isNew) {
+    DATA.venues.push({ id: uid('v'), name, address: addr, defaultLayout: blankLayout(10,10) });
+  } else {
+    const v = DATA.venues.find(x => x.id === id);
+    if (v) { v.name = name; v.address = addr; }
+  }
+  saveData(DATA);
+  closeModal();
+  toast('保存しました');
+  render();
+}
+
+function askDeleteVenue(id) {
+  const v = DATA.venues.find(x => x.id === id);
+  if (!v) return;
+  openConfirmModal(`会場「${v.name}」を削除します。よろしいですか？`, () => {
+    DATA.venues = DATA.venues.filter(x => x.id !== id);
+    saveData(DATA);
+    toast('削除しました');
+    render();
+  });
+}
+
+function enterLayoutEditor(target) {
+  state.admin.layoutEditing = target;
+  state.admin.history = [];
+  state.admin.tool = 'select';
+  render();
+}
+
+function eventWizardNext(step) {
+  const w = state.eventWizard;
+  if (w.step === 1) {
+    w.name = document.getElementById('ew-name').value.trim();
+    w.datetime = document.getElementById('ew-dt').value;
+    w.venueId = document.getElementById('ew-venue').value;
+    w.perPersonLimit = parseInt(document.getElementById('ew-limit').value, 10) || 4;
+    if (!w.name || !w.datetime || !w.venueId) { document.getElementById('ew-err').classList.remove('hidden'); return; }
+  }
+  if (w.step === 2) {
+    // templateMode already saved
+  }
+  w.step = step;
+  renderEventWizard();
+}
+function eventWizardBack() {
+  const w = state.eventWizard;
+  w.step = Math.max(1, w.step - 1);
+  renderEventWizard();
+}
+function saveEventFromWizard() {
+  const w = state.eventWizard;
+  w.openAt = document.getElementById('ew-open').value;
+  w.closeAt = document.getElementById('ew-close').value;
+  if (!w.openAt || !w.closeAt) { document.getElementById('ew-err').classList.remove('hidden'); return; }
+  const venue = DATA.venues.find(v => v.id === w.venueId);
+  const layout = w.templateMode === 'blank' ? blankLayout(10,10) : JSON.parse(JSON.stringify(venue?.defaultLayout || blankLayout(10,10)));
+  DATA.events.push({
+    id: uid('e'),
+    name: w.name,
+    datetime: new Date(w.datetime).toISOString(),
+    venueId: w.venueId,
+    perPersonLimit: w.perPersonLimit,
+    openAt: new Date(w.openAt).toISOString(),
+    closeAt: new Date(w.closeAt).toISOString(),
+    layout
+  });
+  saveData(DATA);
+  closeModal();
+  toast('公演を作成しました');
+  render();
+}
+
+function askDeleteEvent(id) {
+  const ev = DATA.events.find(x => x.id === id);
+  if (!ev) return;
+  openConfirmModal(`公演「${ev.name}」を削除します。関連予約は残ります。よろしいですか？`, () => {
+    DATA.events = DATA.events.filter(x => x.id !== id);
+    saveData(DATA);
+    toast('削除しました');
+    render();
+  });
+}
+
+function applyReservationFilter() {
+  state.admin.reservationFilter.name = document.getElementById('rf-name').value.trim();
+  state.admin.reservationFilter.phone = document.getElementById('rf-phone').value.trim();
+  state.admin.reservationFilter.eventId = document.getElementById('rf-event').value;
+  render();
+}
+
+function downloadCSV() {
+  const f = state.admin.reservationFilter;
+  const list = DATA.reservations
+    .filter(r => !f.name || r.name.includes(f.name))
+    .filter(r => !f.phone || r.phone.includes(f.phone))
+    .filter(r => !f.eventId || r.eventId === f.eventId);
+  const header = ['予約番号','公演名','氏名','電話番号','座席','枚数','予約日時'];
+  const lines = [header.join(',')];
+  list.forEach(r => {
+    const ev = DATA.events.find(e => e.id === r.eventId);
+    const row = [
+      r.id,
+      ev ? ev.name : '(削除済み)',
+      r.name,
+      r.phone,
+      (r.seats||[]).join(' '),
+      r.quantity,
+      formatDateTimeShort(r.createdAt)
+    ].map(csvField).join(',');
+    lines.push(row);
+  });
+  const bom = '﻿';
+  const blob = new Blob([bom + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `reservations_${new Date().toISOString().slice(0,10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast('CSVをダウンロードしました');
+}
+
+function csvField(v) {
+  if (v === null || v === undefined) return '';
+  const s = String(v);
+  if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+    return '"' + s.replace(/"/g, '""') + '"';
+  }
+  return s;
+}
+
+function askDeleteReservation(id) {
+  const r = DATA.reservations.find(x => x.id === id);
+  if (!r) return;
+  openConfirmModal(`予約「${r.id}（${r.name}）」を削除します。よろしいですか？`, () => {
+    DATA.reservations = DATA.reservations.filter(x => x.id !== id);
+    saveData(DATA);
+    toast('削除しました');
+    render();
+  });
+}
+
+function handlePaint(el) {
+  const r = parseInt(el.getAttribute('data-r'),10);
+  const c = parseInt(el.getAttribute('data-c'),10);
+  const layout = getEditingLayout();
+  if (!layout) return;
+  const t = state.admin.tool;
+  if (t === 'select') return;
+  // For aisle tool, the drag handler manages this — skip the click path
+  if (t === 'paintAisle') return;
+  snapshotForUndo();
+  paintCell(layout, r, c);
+  render();
+}
+
+function saveAisle() {
+  const layout = getEditingLayout();
+  if (!layout) return;
+
+  const name = (document.getElementById('am-name').value.trim()) || '通路';
+  const dir = document.getElementById('am-dir').value;
+
+  let sr, er, sc, ec;
+  if (dir === 'horizontal') {
+    sr = er = parseInt(document.getElementById('am-row-sel').value, 10);
+    const cs = parseInt(document.getElementById('am-col-start').value, 10);
+    const ce = parseInt(document.getElementById('am-col-end').value, 10);
+    sc = Math.min(cs, ce);
+    ec = Math.max(cs, ce);
+  } else {
+    sc = ec = parseInt(document.getElementById('am-col-sel').value, 10);
+    const rs = parseInt(document.getElementById('am-row-start').value, 10);
+    const re = parseInt(document.getElementById('am-row-end').value, 10);
+    sr = Math.min(rs, re);
+    er = Math.max(rs, re);
+  }
+
+  if (isNaN(sr) || isNaN(sc)) {
+    document.getElementById('am-err').classList.remove('hidden');
+    return;
+  }
+
+  snapshotForUndo();
+  const aisle = { id: uid('ai'), name, startRow: sr, endRow: er, startCol: sc, endCol: ec, type: dir };
+  layout.aisles = layout.aisles || [];
+  layout.aisles.push(aisle);
+  applyAisle(layout, aisle);
+  closeModal();
+  toast('通路を追加しました');
+  render();
+}
+
+function saveDraggedAisle() {
+  const rect = state.pendingAisleRect;
+  const layout = getEditingLayout();
+  if (!rect || !layout) { closeModal(); return; }
+  const nameEl = document.getElementById('anm-name');
+  const name = (nameEl ? nameEl.value.trim() : '') || '通路';
+  const sr = rect.startRow, er = rect.endRow;
+  // rect.startCol/endCol are seatCol-relative (from data-c). Convert to absolute
+  // header columns using the leftPad of rect.startRow as anchor.
+  const leftPad = Math.floor((layout.cols - rowColCount(layout, sr)) / 2);
+  let sc = rect.startCol + leftPad;
+  let ec = rect.endCol + leftPad;
+  if (sc < 0) sc = 0;
+  if (ec > layout.cols - 1) ec = layout.cols - 1;
+  const type = (er - sr) >= (ec - sc) ? 'vertical' : 'horizontal';
+  snapshotForUndo();
+  const aisle = { id: uid('ai'), name, startRow:sr, endRow:er, startCol:sc, endCol:ec, type };
+  layout.aisles = layout.aisles || [];
+  layout.aisles.push(aisle);
+  applyAisle(layout, aisle);
+  state.pendingAisleRect = null;
+  closeModal();
+  toast('通路を追加しました');
+  render();
+}
+
+// === Drag-to-select for aisle painting ===
+let dragState = null; // { active, startR, startC, curR, curC, previewEl, wrapEl }
+
+function attachAisleDrag() {
+  const wrap = document.getElementById('gridWrap');
+  if (!wrap) return;
+  // Only enable drag when editor mode AND tool is paintAisle
+  if (!state.admin.layoutEditing || state.admin.tool !== 'paintAisle') return;
+
+  function cellFromPoint(clientX, clientY) {
+    const el = document.elementFromPoint(clientX, clientY);
+    if (!el) return null;
+    const seatEl = el.closest('[data-r][data-c]');
+    if (!seatEl) return null;
+    if (!wrap.contains(seatEl)) return null;
+    return { r: parseInt(seatEl.getAttribute('data-r'),10), c: parseInt(seatEl.getAttribute('data-c'),10), el: seatEl };
+  }
+
+  function getRectBounds() {
+    if (!dragState) return null;
+    const layout = getEditingLayout();
+    if (!layout) return null;
+    const sr = Math.min(dragState.startR, dragState.curR);
+    const er = Math.max(dragState.startR, dragState.curR);
+    const sc = Math.min(dragState.startC, dragState.curC);
+    const ec = Math.max(dragState.startC, dragState.curC);
+    return { startRow:sr, endRow:er, startCol:sc, endCol:ec };
+  }
+
+  function updatePreview() {
+    if (!dragState || !dragState.previewEl) return;
+    const bounds = getRectBounds();
+    if (!bounds) return;
+    // Find seat elements at corners to compute rect
+    const startEl = wrap.querySelector(`[data-r="${bounds.startRow}"][data-c="${bounds.startCol}"]`);
+    const endEl = wrap.querySelector(`[data-r="${bounds.endRow}"][data-c="${bounds.endCol}"]`);
+    if (!startEl || !endEl) return;
+    const wrapRect = wrap.getBoundingClientRect();
+    const sRect = startEl.getBoundingClientRect();
+    const eRect = endEl.getBoundingClientRect();
+    const left = Math.min(sRect.left, eRect.left) - wrapRect.left;
+    const top = Math.min(sRect.top, eRect.top) - wrapRect.top;
+    const right = Math.max(sRect.right, eRect.right) - wrapRect.left;
+    const bottom = Math.max(sRect.bottom, eRect.bottom) - wrapRect.top;
+    dragState.previewEl.style.left = left + 'px';
+    dragState.previewEl.style.top = top + 'px';
+    dragState.previewEl.style.width = (right - left) + 'px';
+    dragState.previewEl.style.height = (bottom - top) + 'px';
+  }
+
+  function start(clientX, clientY, isTouch) {
+    const cell = cellFromPoint(clientX, clientY);
+    if (!cell) return false;
+    const preview = document.createElement('div');
+    preview.className = 'drag-preview';
+    wrap.appendChild(preview);
+    dragState = { active: true, startR: cell.r, startC: cell.c, curR: cell.r, curC: cell.c, previewEl: preview, wrapEl: wrap, isTouch };
+    updatePreview();
+    return true;
+  }
+
+  function move(clientX, clientY) {
+    if (!dragState || !dragState.active) return;
+    const cell = cellFromPoint(clientX, clientY);
+    if (!cell) return;
+    dragState.curR = cell.r;
+    dragState.curC = cell.c;
+    updatePreview();
+  }
+
+  function end() {
+    if (!dragState || !dragState.active) return;
+    const bounds = getRectBounds();
+    if (dragState.previewEl && dragState.previewEl.parentNode) dragState.previewEl.parentNode.removeChild(dragState.previewEl);
+    const wasActive = dragState.active;
+    dragState = null;
+    if (!wasActive || !bounds) return;
+    openAisleNameModal(bounds);
+  }
+
+  function onMouseDown(e) {
+    if (e.button !== 0) return;
+    if (start(e.clientX, e.clientY, false)) {
+      e.preventDefault();
+    }
+  }
+  function onMouseMove(e) {
+    if (!dragState) return;
+    move(e.clientX, e.clientY);
+  }
+  function onMouseUp(e) {
+    if (!dragState) return;
+    end();
+  }
+  function onTouchStart(e) {
+    if (!e.touches || e.touches.length === 0) return;
+    const t = e.touches[0];
+    if (start(t.clientX, t.clientY, true)) {
+      e.preventDefault();
+    }
+  }
+  function onTouchMove(e) {
+    if (!dragState) return;
+    if (!e.touches || e.touches.length === 0) return;
+    const t = e.touches[0];
+    move(t.clientX, t.clientY);
+    e.preventDefault();
+  }
+  function onTouchEnd(e) {
+    if (!dragState) return;
+    end();
+  }
+
+  wrap.addEventListener('mousedown', onMouseDown);
+  document.addEventListener('mousemove', onMouseMove);
+  document.addEventListener('mouseup', onMouseUp);
+  wrap.addEventListener('touchstart', onTouchStart, { passive: false });
+  document.addEventListener('touchmove', onTouchMove, { passive: false });
+  document.addEventListener('touchend', onTouchEnd);
+  // Remember to cleanup on next render via removing the wrap element from DOM (handlers tied to that instance go away).
+}
+
+function removeAisle(id) {
+  const layout = getEditingLayout();
+  if (!layout) return;
+  openConfirmModal('この通路を削除します。よろしいですか？', () => {
+    snapshotForUndo();
+    layout.aisles = (layout.aisles||[]).filter(a => a.id !== id);
+    toast('通路を削除しました');
+    render();
+  });
+}
+
+function saveLayout() {
+  saveData(DATA);
+  toast('レイアウトを保存しました');
+}
+
+/* =========================
+ * Utils
+ * ========================= */
+function escapeHtml(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* =========================
+ * Boot
+ * ========================= */
+document.addEventListener('DOMContentLoaded', render);
+</script>
+</body>
+</html>
