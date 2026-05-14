@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>清水テルサ 座席予約システム</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -539,7 +539,7 @@ function renderSeatGrid(layout, opts) {
       html += `<td><div class="${cls}" ${attrs}>${content}</div></td>`;
     }
     if (mode === 'editor') {
-      html += `<td><div class="row-ctrl"><button class="row-ctrl-btn" data-action="row-col-add" data-r="${r}" aria-label="${rowLabel}行に列追加">+</button><button class="row-ctrl-btn" data-action="row-col-del" data-r="${r}" aria-label="${rowLabel}行の列削除">−</button></div></td>`;
+      html += `<td><div class="row-ctrl"><button class="row-ctrl-btn" data-action="row-col-add" data-r="${r}" aria-label="${rowLabel}行に列追加">+</button><button class="row-ctrl-btn" data-action="row-col-del" data-r="${r}" aria-label="${rowLabel}行の列削除">−</button><button class="row-ctrl-btn" data-action="row-del-any" data-r="${r}" aria-label="${rowLabel}行を削除" style="color:#dc2626;border-color:#fca5a5;">×</button></div></td>`;
     }
     html += '</tr>';
   }
@@ -988,6 +988,32 @@ function delRowBack(layout) {
   recomputeCols(layout);
   relabelLayout(layout);
 }
+function delRowAny(layout, r) {
+  if (layout.rows <= 1) return;
+  ensureRowCols(layout);
+  layout.seats = layout.seats.filter(s => s.row !== r);
+  layout.seats.forEach(s => { if (s.row > r) s.row -= 1; });
+  const newRowCols = {};
+  Object.keys(layout.rowCols).forEach(k => {
+    const ki = parseInt(k, 10);
+    if (ki < r) newRowCols[ki] = layout.rowCols[k];
+    else if (ki > r) newRowCols[ki - 1] = layout.rowCols[k];
+  });
+  layout.rowCols = newRowCols;
+  layout.rows -= 1;
+  layout.aisles = (layout.aisles || []).filter(a => {
+    if (a.startRow === r && a.endRow === r) return false;
+    return true;
+  });
+  layout.aisles.forEach(a => {
+    if (a.startRow > r) a.startRow -= 1;
+    if (a.endRow >= r) a.endRow -= 1;
+    if (a.endRow < a.startRow) a.endRow = a.startRow;
+  });
+  recomputeCols(layout);
+  relabelLayout(layout);
+}
+
 function addColLeft(layout) {
   ensureRowCols(layout);
   layout.seats.forEach(s => s.col += 1);
@@ -1378,6 +1404,19 @@ function onAction(e) {
     case 'col-del-right': snapshotForUndo(); delColRight(getEditingLayout()); render(); break;
     case 'row-col-add': snapshotForUndo(); rowAddCol(getEditingLayout(), parseInt(el.getAttribute('data-r'),10)); render(); break;
     case 'row-col-del': snapshotForUndo(); rowDelCol(getEditingLayout(), parseInt(el.getAttribute('data-r'),10)); render(); break;
+    case 'row-del-any': {
+      const rowIdx = parseInt(el.getAttribute('data-r'), 10);
+      const rowLabel2 = makeAlphaLabel(rowIdx, 0).replace(/\d+$/, '');
+      openConfirmModal(
+        `${rowLabel2}行を削除します。この操作は元に戻せません。よろしいですか？`,
+        () => {
+          snapshotForUndo();
+          delRowAny(getEditingLayout(), rowIdx);
+          render();
+        }
+      );
+      break;
+    }
     case 'paint-cell': handlePaint(el); break;
     case 'add-aisle': openAisleModal(getEditingLayout()); break;
     case 'aisle-save': saveAisle(); break;
