@@ -326,7 +326,10 @@ function attachPinchZoom(target) {
   let scale = 1, lastScale = 1;
   let pos = {x: 0, y: 0}, lastPos = {x: 0, y: 0};
   let initialDist = 0;
+  let initialMidpoint = {x: 0, y: 0};
   let touchStart = null;
+  let wasMultiTouch = false;
+  let lastTap = 0;
   const MIN_SCALE = 0.5, MAX_SCALE = 3.0;
 
   function applyTransform() {
@@ -335,12 +338,21 @@ function attachPinchZoom(target) {
   function distFn(t1, t2) {
     return Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
   }
+  function midpointFn(t1, t2, rect) {
+    return {
+      x: (t1.clientX + t2.clientX) / 2 - rect.left,
+      y: (t1.clientY + t2.clientY) / 2 - rect.top
+    };
+  }
 
   target.addEventListener('touchstart', e => {
     if (e.touches.length === 2) {
+      const rect = target.getBoundingClientRect();
       initialDist = distFn(e.touches[0], e.touches[1]);
+      initialMidpoint = midpointFn(e.touches[0], e.touches[1], rect);
       lastScale = scale;
       lastPos = {...pos};
+      wasMultiTouch = true;
       e.preventDefault();
     } else if (e.touches.length === 1 && scale > 1) {
       touchStart = {x: e.touches[0].clientX, y: e.touches[0].clientY};
@@ -352,11 +364,17 @@ function attachPinchZoom(target) {
   target.addEventListener('touchmove', e => {
     if (e.touches.length === 2) {
       const newDist = distFn(e.touches[0], e.touches[1]);
-      scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, lastScale * (newDist / initialDist)));
+      const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, lastScale * (newDist / initialDist)));
+      pos.x = initialMidpoint.x - (initialMidpoint.x - lastPos.x) * (newScale / lastScale);
+      pos.y = initialMidpoint.y - (initialMidpoint.y - lastPos.y) * (newScale / lastScale);
+      scale = newScale;
       applyTransform();
       e.preventDefault();
     } else if (e.touches.length === 1 && touchStart && scale > 1) {
-      pos = {x: lastPos.x + (e.touches[0].clientX - touchStart.x), y: lastPos.y + (e.touches[0].clientY - touchStart.y)};
+      pos = {
+        x: lastPos.x + (e.touches[0].clientX - touchStart.x),
+        y: lastPos.y + (e.touches[0].clientY - touchStart.y)
+      };
       applyTransform();
       e.preventDefault();
     }
@@ -364,13 +382,14 @@ function attachPinchZoom(target) {
 
   target.addEventListener('touchend', e => {
     if (e.touches.length < 2) touchStart = null;
-  });
-
-  let lastTap = 0;
-  target.addEventListener('touchend', e => {
-    const now = Date.now();
-    if (now - lastTap < 300) { scale = 1; pos = {x:0,y:0}; applyTransform(); }
-    lastTap = now;
+    if (e.touches.length === 0) {
+      if (!wasMultiTouch) {
+        const now = Date.now();
+        if (now - lastTap < 300) { scale = 1; pos = {x:0,y:0}; applyTransform(); }
+        lastTap = now;
+      }
+      wasMultiTouch = false;
+    }
   });
 }
 
