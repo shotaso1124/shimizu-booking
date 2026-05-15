@@ -214,7 +214,8 @@ function defaultData() {
         name: 'サンプル公演 2026年6月15日 14:00開演',
         datetime: eventDate.toISOString(),
         venueId,
-        perPersonLimit: 4,
+        reservedLimit: 4,
+        freeLimit: 4,
         openAt: openAt.toISOString(),
         closeAt: closeAt.toISOString(),
         layout: JSON.parse(JSON.stringify(venueLayout))
@@ -235,7 +236,13 @@ function loadData() {
     const data = JSON.parse(raw);
     // Backward compat: ensure rowCols exists on every layout
     (data.venues || []).forEach(v => { if (v.defaultLayout) ensureRowCols(v.defaultLayout); });
-    (data.events || []).forEach(e => { if (e.layout) ensureRowCols(e.layout); });
+    (data.events || []).forEach(ev => {
+      if (ev.layout) ensureRowCols(ev.layout);
+      if (ev.perPersonLimit !== undefined && ev.reservedLimit === undefined) {
+        ev.reservedLimit = ev.perPersonLimit;
+        ev.freeLimit = ev.perPersonLimit;
+      }
+    });
     return data;
   } catch(e) {
     const data = defaultData();
@@ -461,7 +468,14 @@ function render() {
     // スクロール位置を復元（restoreZoom より後）
     const newScrollEl = document.querySelector('.scroll-x');
     if (newScrollEl) {
-      newScrollEl.scrollLeft = savedScrollLeft;
+      if (savedScrollLeft === 0 && newScrollEl.scrollWidth > newScrollEl.clientWidth) {
+        requestAnimationFrame(() => {
+          const scrollable = newScrollEl.scrollWidth - newScrollEl.clientWidth;
+          newScrollEl.scrollLeft = scrollable / 2;
+        });
+      } else {
+        newScrollEl.scrollLeft = savedScrollLeft;
+      }
       newScrollEl.scrollTop = savedScrollTop;
     }
   }
@@ -558,7 +572,8 @@ function renderSeats() {
   const cnt = countSeats(ev.layout);
   const freeUsed = getFreeUsedCount(ev.id);
   const freeRemain = Math.max(0, cnt.free - freeUsed);
-  const limit = ev.perPersonLimit || 4;
+  const reservedLimit = ev.reservedLimit ?? ev.perPersonLimit ?? 4;
+  const freeLimit = ev.freeLimit ?? ev.perPersonLimit ?? 4;
 
   const grid = renderSeatGrid(ev.layout, {
     mode: 'customer',
@@ -567,7 +582,9 @@ function renderSeats() {
   });
 
   const totalSelected = state.reservedSelected.length + state.freeQty;
-  const overLimit = totalSelected > limit;
+  const reservedOverLimit = state.reservedSelected.length > reservedLimit;
+  const freeOverLimit = state.freeQty > freeLimit;
+  const overLimit = reservedOverLimit || freeOverLimit;
 
   const summaryLines = [];
   if (state.reservedSelected.length) summaryLines.push(`指定席: ${state.reservedSelected.slice().sort().join(', ')}`);
@@ -579,7 +596,7 @@ function renderSeats() {
     <div class="card mb-4">
       <p class="text-sm text-slate-600">${venue ? escapeHtml(venue.name) : ''}</p>
       <p class="text-sm text-slate-600">${formatDateTime(ev.datetime)} 開演</p>
-      <p class="text-xs text-slate-500 mt-1">1人あたり ${limit}枚まで予約できます。</p>
+      <p class="text-xs text-slate-500 mt-1">指定席は1人あたり ${reservedLimit}枚、自由席は ${freeLimit}枚まで予約できます。</p>
     </div>
 
     <div class="card mb-4">
@@ -612,7 +629,8 @@ function renderSeats() {
     <div class="card mb-4">
       <h3 class="font-bold mb-2 text-sm">選択内容</h3>
       ${summaryLines.length ? `<p class="text-sm text-slate-700">${summaryLines.join(' / ')}</p>` : '<p class="text-sm text-slate-400">座席を選択してください。</p>'}
-      ${overLimit ? `<p class="err mt-2">1人あたり${limit}枚までです。</p>` : ''}
+      ${reservedOverLimit ? `<p class="err mt-2">指定席は1人あたり${reservedLimit}枚までです。</p>` : ''}
+      ${freeOverLimit ? `<p class="err mt-2">自由席は1人あたり${freeLimit}枚までです。</p>` : ''}
     </div>
   </main>
   <div class="fixed bottom-0 left-0 right-0 bg-white shadow-[0_-4px_12px_rgba(0,0,0,0.06)] z-30">
@@ -881,7 +899,7 @@ function renderAdminEvents() {
           <p class="text-sm text-slate-600">${v ? escapeHtml(v.name) : ''}</p>
           <p class="text-xs text-slate-500">開演 ${formatDateTime(ev.datetime)}</p>
           <p class="text-xs text-slate-500">受付 ${formatDateTimeShort(ev.openAt)} 〜 ${formatDateTimeShort(ev.closeAt)}</p>
-          <p class="text-xs text-slate-500">上限 ${ev.perPersonLimit}枚 / 予約 ${DATA.reservations.filter(r=>r.eventId===ev.id).length}件</p>
+          <p class="text-xs text-slate-500">指定席上限 ${ev.reservedLimit ?? ev.perPersonLimit ?? 4}枚 / 自由席上限 ${ev.freeLimit ?? ev.perPersonLimit ?? 4}枚 / 予約 ${DATA.reservations.filter(r=>r.eventId===ev.id).length}件</p>
         </div>
         <div class="flex flex-col gap-2 shrink-0">
           <button data-action="edit-event-layout" data-id="${ev.id}" class="tool-btn">座席レイアウト</button>
@@ -1323,7 +1341,7 @@ function openVenueModal(venue) {
 
 function openEventModal() {
   // 3-step wizard inside one modal
-  state.eventWizard = { step: 1, name:'', datetime:'', venueId: DATA.venues[0]?.id || '', perPersonLimit: 4, templateMode: 'venueDefault', openAt:'', closeAt:'' };
+  state.eventWizard = { step: 1, name:'', datetime:'', venueId: DATA.venues[0]?.id || '', reservedLimit: 4, freeLimit: 4, templateMode: 'venueDefault', openAt:'', closeAt:'' };
   renderEventWizard();
 }
 function renderEventWizard() {
@@ -1337,7 +1355,14 @@ function renderEventWizard() {
         <div><label class="label">公演名</label><input id="ew-name" class="input" value="${escapeHtml(w.name)}" placeholder="サンプル公演 2026年6月15日 14:00開演" /></div>
         <div><label class="label">日時</label><input id="ew-dt" type="datetime-local" class="input" value="${escapeHtml(w.datetime)}" /></div>
         <div><label class="label">会場</label><select id="ew-venue" class="input">${venueOpts}</select></div>
-        <div><label class="label">1人あたり予約上限枚数</label><input id="ew-limit" type="number" min="1" class="input" value="${w.perPersonLimit}" /></div>
+        <div>
+          <label class="label">指定席 1人あたり上限枚数</label>
+          <input id="ew-rlimit" type="number" min="1" class="input" value="${w.reservedLimit}" />
+        </div>
+        <div>
+          <label class="label">自由席 1人あたり上限枚数</label>
+          <input id="ew-flimit" type="number" min="1" class="input" value="${w.freeLimit}" />
+        </div>
         <p id="ew-err" class="err hidden">必須項目を入力してください。</p>
       </div>
       <div class="flex gap-2 mt-4">
@@ -1615,12 +1640,12 @@ function openEvent(id) {
 function toggleSeat(label) {
   const idx = state.reservedSelected.indexOf(label);
   const ev = DATA.events.find(e => e.id === state.selectedEventId);
-  const limit = ev?.perPersonLimit || 4;
+  const limit = ev?.reservedLimit ?? ev?.perPersonLimit ?? 4;
   if (idx >= 0) {
     state.reservedSelected.splice(idx, 1);
   } else {
-    if (state.reservedSelected.length + state.freeQty >= limit) {
-      toast(`1人あたり${limit}枚までです`);
+    if (state.reservedSelected.length >= limit) {
+      toast(`指定席は1人あたり${limit}枚までです`);
       return;
     }
     state.reservedSelected.push(label);
@@ -1630,14 +1655,14 @@ function toggleSeat(label) {
 
 function freeAdjust(delta) {
   const ev = DATA.events.find(e => e.id === state.selectedEventId);
-  const limit = ev?.perPersonLimit || 4;
+  const limit = ev?.freeLimit ?? ev?.perPersonLimit ?? 4;
   const cnt = countSeats(ev.layout);
   const used = getFreeUsedCount(ev.id);
   const remain = Math.max(0, cnt.free - used);
   const next = state.freeQty + delta;
   if (next < 0) return;
   if (next > remain) { toast('自由席の残席を超えています'); return; }
-  if (state.reservedSelected.length + next > limit) { toast(`1人あたり${limit}枚までです`); return; }
+  if (next > limit) { toast(`自由席は1人あたり${limit}枚までです`); return; }
   state.freeQty = next;
   render();
 }
@@ -1741,7 +1766,8 @@ function eventWizardNext(step) {
     w.name = document.getElementById('ew-name').value.trim();
     w.datetime = document.getElementById('ew-dt').value;
     w.venueId = document.getElementById('ew-venue').value;
-    w.perPersonLimit = parseInt(document.getElementById('ew-limit').value, 10) || 4;
+    w.reservedLimit = parseInt(document.getElementById('ew-rlimit').value, 10) || 4;
+    w.freeLimit = parseInt(document.getElementById('ew-flimit').value, 10) || 4;
     if (!w.name || !w.datetime || !w.venueId) { document.getElementById('ew-err').classList.remove('hidden'); return; }
   }
   if (w.step === 2) {
@@ -1767,7 +1793,8 @@ function saveEventFromWizard() {
     name: w.name,
     datetime: new Date(w.datetime).toISOString(),
     venueId: w.venueId,
-    perPersonLimit: w.perPersonLimit,
+    reservedLimit: w.reservedLimit,
+    freeLimit: w.freeLimit,
     openAt: new Date(w.openAt).toISOString(),
     closeAt: new Date(w.closeAt).toISOString(),
     layout
@@ -2061,6 +2088,20 @@ function removeAisle(id) {
 }
 
 function saveLayout() {
+  const le = state.admin.layoutEditing;
+  if (le && le.type === 'venueDefault') {
+    const relatedEvents = DATA.events.filter(ev => ev.venueId === le.id);
+    if (relatedEvents.length > 0) {
+      const venue = DATA.venues.find(v => v.id === le.id);
+      const msg = `この会場を使用している公演が ${relatedEvents.length} 件あります。\n全公演の座席レイアウトも同じ内容に更新しますか？\n\n※ 注意: 既存の予約済み座席ラベルと新レイアウトの座席ラベルが一致しない場合、予約が正しく表示されない可能性があります。`;
+      if (confirm(msg)) {
+        const snapshot = JSON.parse(JSON.stringify(venue.defaultLayout));
+        relatedEvents.forEach(ev => {
+          ev.layout = JSON.parse(JSON.stringify(snapshot));
+        });
+      }
+    }
+  }
   saveData(DATA);
   toast('レイアウトを保存しました');
 }
