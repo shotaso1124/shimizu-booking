@@ -159,7 +159,7 @@ function buildShimizuTerrsa() {
   ];
   const rowCols = {};
   for (let r=0;r<rows;r++) rowCols[r] = cols;
-  return { rows, cols, seats, aisles, rowCols };
+  return { rows, cols, seats, aisles, rowCols, reservedLimit: 4, freeLimit: 4 };
 }
 
 function blankLayout(rows=10, cols=10) {
@@ -167,7 +167,7 @@ function blankLayout(rows=10, cols=10) {
   for (let r=0;r<rows;r++) for (let c=0;c<cols;c++) seats.push({ row:r, col:c, type:'reserved', label: makeAlphaLabel(r,c) });
   const rowCols = {};
   for (let r=0;r<rows;r++) rowCols[r] = cols;
-  return { rows, cols, seats, aisles: [], rowCols };
+  return { rows, cols, seats, aisles: [], rowCols, reservedLimit: 4, freeLimit: 4 };
 }
 
 // Ensure rowCols exists for backward compatibility
@@ -214,8 +214,6 @@ function defaultData() {
         name: 'サンプル公演 2026年6月15日 14:00開演',
         datetime: eventDate.toISOString(),
         venueId,
-        reservedLimit: 4,
-        freeLimit: 4,
         openAt: openAt.toISOString(),
         closeAt: closeAt.toISOString(),
         layout: JSON.parse(JSON.stringify(venueLayout))
@@ -241,6 +239,13 @@ function loadData() {
       if (ev.perPersonLimit !== undefined && ev.reservedLimit === undefined) {
         ev.reservedLimit = ev.perPersonLimit;
         ev.freeLimit = ev.perPersonLimit;
+      }
+      // Migrate event-level limits into layout
+      if (ev.layout && ev.reservedLimit !== undefined && ev.layout.reservedLimit === undefined) {
+        ev.layout.reservedLimit = ev.reservedLimit;
+      }
+      if (ev.layout && ev.freeLimit !== undefined && ev.layout.freeLimit === undefined) {
+        ev.layout.freeLimit = ev.freeLimit;
       }
     });
     return data;
@@ -471,7 +476,9 @@ function render() {
       if (savedScrollLeft === 0 && newScrollEl.scrollWidth > newScrollEl.clientWidth) {
         requestAnimationFrame(() => {
           const scrollable = newScrollEl.scrollWidth - newScrollEl.clientWidth;
-          newScrollEl.scrollLeft = scrollable / 2;
+          const rowLabel = newScrollEl.querySelector('td.row-label');
+          const rowLabelWidth = rowLabel ? rowLabel.offsetWidth : 40;
+          newScrollEl.scrollLeft = scrollable / 2 + rowLabelWidth / 2;
         });
       } else {
         newScrollEl.scrollLeft = savedScrollLeft;
@@ -572,8 +579,8 @@ function renderSeats() {
   const cnt = countSeats(ev.layout);
   const freeUsed = getFreeUsedCount(ev.id);
   const freeRemain = Math.max(0, cnt.free - freeUsed);
-  const reservedLimit = ev.reservedLimit ?? ev.perPersonLimit ?? 4;
-  const freeLimit = ev.freeLimit ?? ev.perPersonLimit ?? 4;
+  const reservedLimit = ev.layout?.reservedLimit ?? ev.reservedLimit ?? ev.perPersonLimit ?? 4;
+  const freeLimit = ev.layout?.freeLimit ?? ev.freeLimit ?? ev.perPersonLimit ?? 4;
 
   const grid = renderSeatGrid(ev.layout, {
     mode: 'customer',
@@ -890,6 +897,8 @@ function renderAdminEvents() {
   const rows = DATA.events.map(ev => {
     const v = venueOf(ev);
     const s = eventStatus(ev);
+    const evRL = ev.layout?.reservedLimit ?? ev.reservedLimit ?? ev.perPersonLimit ?? 4;
+    const evFL = ev.layout?.freeLimit ?? ev.freeLimit ?? ev.perPersonLimit ?? 4;
     return `
     <div class="card">
       <div class="flex justify-between items-start gap-2">
@@ -899,7 +908,7 @@ function renderAdminEvents() {
           <p class="text-sm text-slate-600">${v ? escapeHtml(v.name) : ''}</p>
           <p class="text-xs text-slate-500">開演 ${formatDateTime(ev.datetime)}</p>
           <p class="text-xs text-slate-500">受付 ${formatDateTimeShort(ev.openAt)} 〜 ${formatDateTimeShort(ev.closeAt)}</p>
-          <p class="text-xs text-slate-500">指定席上限 ${ev.reservedLimit ?? ev.perPersonLimit ?? 4}枚 / 自由席上限 ${ev.freeLimit ?? ev.perPersonLimit ?? 4}枚 / 予約 ${DATA.reservations.filter(r=>r.eventId===ev.id).length}件</p>
+          <p class="text-xs text-slate-500">指定席上限 ${evRL}枚 / 自由席上限 ${evFL}枚 / 予約 ${DATA.reservations.filter(r=>r.eventId===ev.id).length}件</p>
         </div>
         <div class="flex flex-col gap-2 shrink-0">
           <button data-action="edit-event-layout" data-id="${ev.id}" class="tool-btn">座席レイアウト</button>
@@ -1077,6 +1086,20 @@ function renderLayoutEditor() {
       </div>
       <p class="text-xs text-slate-500 mb-2">ツールバーの「通路」を選び、グリッド上をドラッグして範囲指定もできます。</p>
       ${aisleList || '<p class="text-xs text-slate-500">通路は登録されていません。</p>'}
+    </div>
+
+    <div class="card mb-4">
+      <h3 class="font-bold text-sm mb-3">1人あたり予約上限</h3>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="label">指定席（枚）</label>
+          <input id="le-rlimit" type="number" min="1" class="input" value="${layout.reservedLimit ?? 4}" />
+        </div>
+        <div>
+          <label class="label">自由席（枚）</label>
+          <input id="le-flimit" type="number" min="1" class="input" value="${layout.freeLimit ?? 4}" />
+        </div>
+      </div>
     </div>
 
     <div class="card mb-4">
@@ -1341,7 +1364,7 @@ function openVenueModal(venue) {
 
 function openEventModal() {
   // 3-step wizard inside one modal
-  state.eventWizard = { step: 1, name:'', datetime:'', venueId: DATA.venues[0]?.id || '', reservedLimit: 4, freeLimit: 4, templateMode: 'venueDefault', openAt:'', closeAt:'' };
+  state.eventWizard = { step: 1, name:'', datetime:'', venueId: DATA.venues[0]?.id || '', templateMode: 'venueDefault', openAt:'', closeAt:'' };
   renderEventWizard();
 }
 function renderEventWizard() {
@@ -1355,14 +1378,7 @@ function renderEventWizard() {
         <div><label class="label">公演名</label><input id="ew-name" class="input" value="${escapeHtml(w.name)}" placeholder="サンプル公演 2026年6月15日 14:00開演" /></div>
         <div><label class="label">日時</label><input id="ew-dt" type="datetime-local" class="input" value="${escapeHtml(w.datetime)}" /></div>
         <div><label class="label">会場</label><select id="ew-venue" class="input">${venueOpts}</select></div>
-        <div>
-          <label class="label">指定席 1人あたり上限枚数</label>
-          <input id="ew-rlimit" type="number" min="1" class="input" value="${w.reservedLimit}" />
-        </div>
-        <div>
-          <label class="label">自由席 1人あたり上限枚数</label>
-          <input id="ew-flimit" type="number" min="1" class="input" value="${w.freeLimit}" />
-        </div>
+        <p class="text-xs text-slate-500">1人あたり予約上限は座席レイアウト編集画面で設定します。</p>
         <p id="ew-err" class="err hidden">必須項目を入力してください。</p>
       </div>
       <div class="flex gap-2 mt-4">
@@ -1640,7 +1656,7 @@ function openEvent(id) {
 function toggleSeat(label) {
   const idx = state.reservedSelected.indexOf(label);
   const ev = DATA.events.find(e => e.id === state.selectedEventId);
-  const limit = ev?.reservedLimit ?? ev?.perPersonLimit ?? 4;
+  const limit = ev?.layout?.reservedLimit ?? ev?.reservedLimit ?? ev?.perPersonLimit ?? 4;
   if (idx >= 0) {
     state.reservedSelected.splice(idx, 1);
   } else {
@@ -1655,7 +1671,7 @@ function toggleSeat(label) {
 
 function freeAdjust(delta) {
   const ev = DATA.events.find(e => e.id === state.selectedEventId);
-  const limit = ev?.freeLimit ?? ev?.perPersonLimit ?? 4;
+  const limit = ev?.layout?.freeLimit ?? ev?.freeLimit ?? ev?.perPersonLimit ?? 4;
   const cnt = countSeats(ev.layout);
   const used = getFreeUsedCount(ev.id);
   const remain = Math.max(0, cnt.free - used);
@@ -1766,8 +1782,6 @@ function eventWizardNext(step) {
     w.name = document.getElementById('ew-name').value.trim();
     w.datetime = document.getElementById('ew-dt').value;
     w.venueId = document.getElementById('ew-venue').value;
-    w.reservedLimit = parseInt(document.getElementById('ew-rlimit').value, 10) || 4;
-    w.freeLimit = parseInt(document.getElementById('ew-flimit').value, 10) || 4;
     if (!w.name || !w.datetime || !w.venueId) { document.getElementById('ew-err').classList.remove('hidden'); return; }
   }
   if (w.step === 2) {
@@ -1793,8 +1807,6 @@ function saveEventFromWizard() {
     name: w.name,
     datetime: new Date(w.datetime).toISOString(),
     venueId: w.venueId,
-    reservedLimit: w.reservedLimit,
-    freeLimit: w.freeLimit,
     openAt: new Date(w.openAt).toISOString(),
     closeAt: new Date(w.closeAt).toISOString(),
     layout
@@ -2089,6 +2101,13 @@ function removeAisle(id) {
 
 function saveLayout() {
   const le = state.admin.layoutEditing;
+  const editingLayout = getEditingLayout();
+  if (editingLayout) {
+    const rlimitEl = document.getElementById('le-rlimit');
+    const flimitEl = document.getElementById('le-flimit');
+    if (rlimitEl) editingLayout.reservedLimit = parseInt(rlimitEl.value, 10) || 4;
+    if (flimitEl) editingLayout.freeLimit = parseInt(flimitEl.value, 10) || 4;
+  }
   if (le && le.type === 'venueDefault') {
     const relatedEvents = DATA.events.filter(ev => ev.venueId === le.id);
     if (relatedEvents.length > 0) {
