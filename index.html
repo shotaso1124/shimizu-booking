@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>清水テルサ 座席予約システム</title>
 <script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
@@ -117,7 +118,11 @@
 /* =========================
  * Data layer
  * ========================= */
-const STORAGE_KEY = 'dance_booking_data';
+const SUPABASE_URL = 'https://cnzroffamlqadzshcapy.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_Vs_fJw20IkBNMJIUVp3CDA_lKBjdtf2';
+const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+function buildShimizuLayout() { return buildShimizuTerrsa(); }
 
 function uid(prefix='id') { return prefix + '_' + Math.random().toString(36).slice(2,9) + Date.now().toString(36).slice(-4); }
 
@@ -223,41 +228,92 @@ function defaultData() {
   };
 }
 
-function loadData() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      const data = defaultData();
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-      return data;
+let DATA = { venues: [], events: [], reservations: [] };
+
+async function loadData() {
+  const [{ data: venues }, { data: events }, { data: reservations }] = await Promise.all([
+    db.from('venues').select('*').order('created_at'),
+    db.from('events').select('*').order('created_at'),
+    db.from('reservations').select('*').order('created_at'),
+  ]);
+
+  DATA.venues = (venues || []).map(v => ({
+    id: v.id, name: v.name, address: v.address || '',
+    defaultLayout: v.default_layout || buildShimizuLayout(),
+  }));
+
+  DATA.events = (events || []).map(ev => {
+    const layout = ev.layout || (DATA.venues.find(v => v.id === ev.venue_id)?.defaultLayout || buildShimizuLayout());
+    ensureRowCols(layout);
+    return {
+      id: ev.id, name: ev.name, datetime: ev.datetime,
+      venueId: ev.venue_id, openAt: ev.open_at, closeAt: ev.close_at,
+      layout,
+      publicReservation: ev.public_reservation ?? true,
+      freeSaleEnabled: ev.free_sale_enabled ?? true,
+      perPersonLimit: ev.per_person_limit ?? 4,
+    };
+  });
+
+  DATA.reservations = (reservations || []).map(r => ({
+    id: r.id, eventId: r.event_id, name: r.name, phone: r.phone,
+    seats: r.seats || [], quantity: r.quantity, createdAt: r.created_at,
+  }));
+}
+
+async function upsertVenue(v) {
+  await db.from('venues').upsert({
+    id: v.id, name: v.name, address: v.address, default_layout: v.defaultLayout,
+  });
+}
+
+async function upsertEvent(ev) {
+  await db.from('events').upsert({
+    id: ev.id, venue_id: ev.venueId, name: ev.name,
+    datetime: ev.datetime, open_at: ev.openAt, close_at: ev.closeAt,
+    layout: ev.layout,
+    per_person_limit: ev.perPersonLimit ?? ev.layout?.reservedLimit ?? 4,
+    public_reservation: ev.publicReservation ?? true,
+    free_sale_enabled: ev.freeSaleEnabled ?? true,
+  });
+}
+
+async function deleteVenueDb(id) { await db.from('venues').delete().eq('id', id); }
+async function deleteEventDb(id)  { await db.from('events').delete().eq('id', id); }
+async function deleteReservationDb(id) { await db.from('reservations').delete().eq('id', id); }
+
+async function insertReservation(res) {
+  const { error: resErr } = await db.from('reservations').insert({
+    id: res.id, event_id: res.eventId, name: res.name, phone: res.phone,
+    seats: res.seats, quantity: res.quantity,
+  });
+  if (resErr) throw resErr;
+
+  if (res.seats.length > 0) {
+    const rows = res.seats.map(s => ({
+      event_id: res.eventId, seat_label: s, reservation_id: res.id,
+    }));
+    const { error: seatErr } = await db.from('reserved_seats').insert(rows);
+    if (seatErr) {
+      await db.from('reservations').delete().eq('id', res.id);
+      const dup = new Error('seat_conflict');
+      dup.code = 'seat_conflict';
+      throw dup;
     }
-    const data = JSON.parse(raw);
-    // Backward compat: ensure rowCols exists on every layout
-    (data.venues || []).forEach(v => { if (v.defaultLayout) ensureRowCols(v.defaultLayout); });
-    (data.events || []).forEach(ev => {
-      if (ev.layout) ensureRowCols(ev.layout);
-      if (ev.perPersonLimit !== undefined && ev.reservedLimit === undefined) {
-        ev.reservedLimit = ev.perPersonLimit;
-        ev.freeLimit = ev.perPersonLimit;
-      }
-      // Migrate event-level limits into layout
-      if (ev.layout && ev.reservedLimit !== undefined && ev.layout.reservedLimit === undefined) {
-        ev.layout.reservedLimit = ev.reservedLimit;
-      }
-      if (ev.layout && ev.freeLimit !== undefined && ev.layout.freeLimit === undefined) {
-        ev.layout.freeLimit = ev.freeLimit;
-      }
-    });
-    return data;
-  } catch(e) {
-    const data = defaultData();
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    return data;
   }
 }
-function saveData(d) { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)); }
 
-let DATA = loadData();
+async function reloadAndRender() {
+  await loadData();
+  render();
+}
+
+function subscribeRealtime() {
+  db.channel('booking-changes')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'reservations' }, reloadAndRender)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'reserved_seats' }, reloadAndRender)
+    .subscribe();
+}
 
 /* =========================
  * State (router & UI)
@@ -594,16 +650,21 @@ function renderSeats() {
   }
   const venue = venueOf(ev);
   const taken = getReservedTakenLabels(ev.id);
+  // 公演側設定で非公開の場合、顧客側グリッドには既予約を表示しない（重複はサーバUNIQUE制約で防止）
+  const displayTaken = ev.publicReservation === false ? new Set() : taken;
   const cnt = countSeats(ev.layout);
   const freeUsed = getFreeUsedCount(ev.id);
   const freeRemain = Math.max(0, cnt.free - freeUsed);
   const reservedLimit = ev.layout?.reservedLimit ?? ev.reservedLimit ?? ev.perPersonLimit ?? 4;
   const freeLimit = ev.layout?.freeLimit ?? ev.freeLimit ?? ev.perPersonLimit ?? 4;
+  const freeSaleEnabled = ev.freeSaleEnabled !== false;
+  if (!freeSaleEnabled && state.freeQty > 0) state.freeQty = 0;
 
   const grid = renderSeatGrid(ev.layout, {
     mode: 'customer',
-    takenSet: taken,
+    takenSet: displayTaken,
     selectedSet: new Set(state.reservedSelected),
+    freeSaleEnabled,
   });
 
   const totalSelected = state.reservedSelected.length + state.freeQty;
@@ -643,12 +704,16 @@ function renderSeats() {
 
     <div class="card mb-4">
       <h3 class="font-bold mb-2 text-sm">自由席</h3>
+      ${freeSaleEnabled ? `
       <p class="text-xs text-slate-500 mb-2">残り <span class="font-bold text-amber-600">${freeRemain}</span> 席分</p>
       <div class="flex items-center gap-3">
         <button data-action="free-minus" class="tap w-12 h-12 rounded-xl bg-base font-bold text-2xl">−</button>
         <div class="flex-1 text-center text-2xl font-bold">${state.freeQty}<span class="text-sm ml-1 font-normal text-slate-500">枚</span></div>
         <button data-action="free-plus" class="tap w-12 h-12 rounded-xl bg-base font-bold text-2xl">+</button>
       </div>
+      ` : `
+      <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-700 font-bold">自由席は当日販売のみです</div>
+      `}
     </div>
 
     <div class="card mb-4">
@@ -667,7 +732,7 @@ function renderSeats() {
 }
 
 function renderSeatGrid(layout, opts) {
-  const { mode='customer', takenSet=new Set(), selectedSet=new Set(), highlightMode=null } = opts || {};
+  const { mode='customer', takenSet=new Set(), selectedSet=new Set(), highlightMode=null, freeSaleEnabled=true } = opts || {};
   ensureRowCols(layout);
   const rows = layout.rows, cols = layout.cols;
   let html = '<div class="grid-wrap" id="gridWrap"><table style="border-spacing:4px;border-collapse:separate;"><tbody>';
@@ -681,7 +746,13 @@ function renderSeatGrid(layout, opts) {
     const leftPad = Math.floor((cols - rc) / 2);
     html += '<tr>';
     const rowLabel = makeAlphaLabel(r, 0).replace(/\d+$/,'');
-    html += `<td class="row-label">${rowLabel}</td>`;
+    // 全列が通路の行はラベルを空にする（通路セルのみで構成された行は番号不要）
+    const allAisle = [...Array(cols).keys()].every(c =>
+      (layout.aisles || []).some(a =>
+        r >= a.startRow && r <= a.endRow && c >= a.startCol && c <= a.endCol
+      )
+    );
+    html += `<td class="row-label">${allAisle ? '' : rowLabel}</td>`;
     // Iterate by absolute column index (0..cols-1) so aisles align with header numbers.
     for (let absC = 0; absC < cols; absC++) {
       // 1) Aisle (header-absolute) wins regardless of seat range.
@@ -715,7 +786,8 @@ function renderSeatGrid(layout, opts) {
             attrs = `data-action="toggle-seat" data-label="${seat.label}"`;
           }
         } else if (seat.type === 'free') {
-          cls += 'seat-free'; content = '自';
+          if (freeSaleEnabled) { cls += 'seat-free'; content = '自'; }
+          else { cls += 'seat-disabled'; content = '自'; }
         } else if (seat.type === 'disabled') {
           cls += 'seat-disabled'; content = '×';
         } else {
@@ -990,6 +1062,14 @@ function renderAdminEvents() {
           <p class="text-xs text-slate-500">開演 ${formatDateTime(ev.datetime)}</p>
           <p class="text-xs text-slate-500">受付 ${formatDateTimeShort(ev.openAt)} 〜 ${formatDateTimeShort(ev.closeAt)}</p>
           <p class="text-xs text-slate-500">指定席上限 ${evRL}枚 / 自由席上限 ${evFL}枚 / 予約 ${DATA.reservations.filter(r=>r.eventId===ev.id).length}件</p>
+          <label class="flex items-center gap-2 text-sm cursor-pointer mt-2">
+            <input type="checkbox" data-action="toggle-public-res" data-id="${ev.id}" ${ev.publicReservation !== false ? 'checked' : ''} />
+            予約状況を顧客に公開
+          </label>
+          <label class="flex items-center gap-2 text-sm cursor-pointer mt-2">
+            <input type="checkbox" data-action="toggle-free-sale" data-id="${ev.id}" ${ev.freeSaleEnabled !== false ? 'checked' : ''} />
+            自由席の事前予約を受け付ける
+          </label>
         </div>
         <div class="flex flex-col gap-2 shrink-0">
           <button data-action="edit-event-layout" data-id="${ev.id}" class="tool-btn">座席レイアウト</button>
@@ -1669,6 +1749,22 @@ function onAction(e) {
     case 'clear-rfilter': state.admin.reservationFilter = {name:'',phone:'',eventId:''}; render(); break;
     case 'download-csv': downloadCSV(); break;
     case 'download-event-csv': downloadEventCSV(el.dataset.id); break;
+    case 'toggle-public-res': {
+      const evp = DATA.events.find(e => e.id === el.dataset.id);
+      if (evp) {
+        evp.publicReservation = !(evp.publicReservation !== false);
+        (async () => { await upsertEvent(evp); await reloadAndRender(); })();
+      }
+      break;
+    }
+    case 'toggle-free-sale': {
+      const evf = DATA.events.find(e => e.id === el.dataset.id);
+      if (evf) {
+        evf.freeSaleEnabled = !(evf.freeSaleEnabled !== false);
+        (async () => { await upsertEvent(evf); await reloadAndRender(); })();
+      }
+      break;
+    }
     case 'delete-reservation': askDeleteReservation(id); break;
     case 'set-tool': state.admin.tool = el.getAttribute('data-tool'); render(); break;
     case 'undo': undo(); break;
@@ -1787,37 +1883,52 @@ function goToConfirm() {
   render();
 }
 
-function confirmReservation() {
+async function confirmReservation() {
   if (!document.getElementById('privacy-consent')?.checked) {
-    toast('プライバシーポリシーに同意してください');
-    return;
+    toast('プライバシーポリシーに同意してください'); return;
   }
   const ev = DATA.events.find(e => e.id === state.selectedEventId);
   if (!ev) return;
-  // double-check capacity in case of concurrent edits
+
   const taken = getReservedTakenLabels(ev.id);
   const overlap = state.reservedSelected.filter(l => taken.has(l));
   if (overlap.length) { toast('選択した座席が他のお客様と重複しました'); state.view='seats'; render(); return; }
+
   const cnt = countSeats(ev.layout);
   const used = getFreeUsedCount(ev.id);
   if (state.freeQty > Math.max(0, cnt.free - used)) { toast('自由席の残席を超えています'); state.view='seats'; render(); return; }
 
   const resId = 'R' + Date.now().toString().slice(-6) + Math.floor(Math.random()*900+100);
+  const seatsArr = state.reservedSelected.slice().sort();
+  // 既存実装に合わせ、seats 配列は指定席ラベルのみ、quantity に指定+自由の合計枚数を入れる
   const res = {
-    id: resId,
-    eventId: ev.id,
-    name: state.form.name,
-    phone: state.form.phone,
-    seats: state.reservedSelected.slice().sort(),
-    quantity: state.reservedSelected.length + state.freeQty,
-    createdAt: new Date().toISOString()
+    id: resId, eventId: ev.id,
+    name: state.form.name, phone: state.form.phone,
+    seats: seatsArr,
+    quantity: seatsArr.length + state.freeQty,
   };
-  DATA.reservations.push(res);
-  saveData(DATA);
-  state.lastReservationId = resId;
-  state.view = 'done';
-  toast('予約を確定しました');
-  render();
+
+  const btn = document.getElementById('confirm-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '処理中...'; }
+
+  try {
+    await insertReservation(res);
+    state.lastReservationId = resId;
+    await reloadAndRender();
+    state.view = 'done';
+    toast('予約を確定しました');
+    render();
+  } catch (err) {
+    if (err.code === 'seat_conflict') {
+      toast('選択した座席はすでに予約済みです。別の席を選んでください。');
+      await reloadAndRender();
+      state.view = 'seats';
+    } else {
+      toast('予約に失敗しました。もう一度お試しください。');
+      console.error(err);
+    }
+    render();
+  }
 }
 
 /* =========================
@@ -1833,30 +1944,32 @@ function adminLogin() {
   }
 }
 
-function saveVenueModal(id, isNew) {
+async function saveVenueModal(id, isNew) {
   const name = document.getElementById('vm-name').value.trim();
   const addr = document.getElementById('vm-addr').value.trim();
   if (!name) { document.getElementById('vm-err').classList.remove('hidden'); return; }
+  let venue;
   if (isNew) {
-    DATA.venues.push({ id: uid('v'), name, address: addr, defaultLayout: blankLayout(10,10) });
+    venue = { id: uid('v'), name, address: addr, defaultLayout: blankLayout(10,10) };
   } else {
-    const v = DATA.venues.find(x => x.id === id);
-    if (v) { v.name = name; v.address = addr; }
+    venue = DATA.venues.find(x => x.id === id);
+    if (venue) { venue.name = name; venue.address = addr; }
   }
-  saveData(DATA);
+  if (venue) {
+    await upsertVenue(venue);
+    await reloadAndRender();
+  }
   closeModal();
   toast('保存しました');
-  render();
 }
 
 function askDeleteVenue(id) {
   const v = DATA.venues.find(x => x.id === id);
   if (!v) return;
-  openConfirmModal(`会場「${v.name}」を削除します。よろしいですか？`, () => {
-    DATA.venues = DATA.venues.filter(x => x.id !== id);
-    saveData(DATA);
+  openConfirmModal(`会場「${v.name}」を削除します。よろしいですか？`, async () => {
+    await deleteVenueDb(id);
+    await reloadAndRender();
     toast('削除しました');
-    render();
   });
 }
 
@@ -1886,36 +1999,37 @@ function eventWizardBack() {
   w.step = Math.max(1, w.step - 1);
   renderEventWizard();
 }
-function saveEventFromWizard() {
+async function saveEventFromWizard() {
   const w = state.eventWizard;
   w.openAt = document.getElementById('ew-open').value;
   w.closeAt = document.getElementById('ew-close').value;
   if (!w.openAt || !w.closeAt) { document.getElementById('ew-err').classList.remove('hidden'); return; }
   const venue = DATA.venues.find(v => v.id === w.venueId);
   const layout = w.templateMode === 'blank' ? blankLayout(10,10) : JSON.parse(JSON.stringify(venue?.defaultLayout || blankLayout(10,10)));
-  DATA.events.push({
+  const ev = {
     id: uid('e'),
     name: w.name,
     datetime: new Date(w.datetime).toISOString(),
     venueId: w.venueId,
     openAt: new Date(w.openAt).toISOString(),
     closeAt: new Date(w.closeAt).toISOString(),
-    layout
-  });
-  saveData(DATA);
+    layout,
+    publicReservation: true,
+    freeSaleEnabled: true,
+  };
+  await upsertEvent(ev);
+  await reloadAndRender();
   closeModal();
   toast('公演を作成しました');
-  render();
 }
 
 function askDeleteEvent(id) {
   const ev = DATA.events.find(x => x.id === id);
   if (!ev) return;
-  openConfirmModal(`公演「${ev.name}」を削除します。関連予約は残ります。よろしいですか？`, () => {
-    DATA.events = DATA.events.filter(x => x.id !== id);
-    saveData(DATA);
+  openConfirmModal(`公演「${ev.name}」を削除します。関連予約は残ります。よろしいですか？`, async () => {
+    await deleteEventDb(id);
+    await reloadAndRender();
     toast('削除しました');
-    render();
   });
 }
 
@@ -2003,11 +2117,10 @@ function csvField(v) {
 function askDeleteReservation(id) {
   const r = DATA.reservations.find(x => x.id === id);
   if (!r) return;
-  openConfirmModal(`予約「${r.id}（${r.name}）」を削除します。よろしいですか？`, () => {
-    DATA.reservations = DATA.reservations.filter(x => x.id !== id);
-    saveData(DATA);
+  openConfirmModal(`予約「${r.id}（${r.name}）」を削除します。よろしいですか？`, async () => {
+    await deleteReservationDb(id);
+    await reloadAndRender();
     toast('削除しました');
-    render();
   });
 }
 
@@ -2221,7 +2334,7 @@ function removeAisle(id) {
   });
 }
 
-function saveLayout() {
+async function saveLayout() {
   const le = state.admin.layoutEditing;
   const editingLayout = getEditingLayout();
   if (editingLayout) {
@@ -2230,6 +2343,7 @@ function saveLayout() {
     if (rlimitEl) editingLayout.reservedLimit = parseInt(rlimitEl.value, 10) || 4;
     if (flimitEl) editingLayout.freeLimit = parseInt(flimitEl.value, 10) || 4;
   }
+  const syncedEvents = [];
   if (le && le.type === 'venueDefault') {
     const relatedEvents = DATA.events.filter(ev => ev.venueId === le.id);
     if (relatedEvents.length > 0) {
@@ -2239,11 +2353,25 @@ function saveLayout() {
         const snapshot = JSON.parse(JSON.stringify(venue.defaultLayout));
         relatedEvents.forEach(ev => {
           ev.layout = JSON.parse(JSON.stringify(snapshot));
+          syncedEvents.push(ev);
         });
       }
     }
   }
-  saveData(DATA);
+
+  if (le && le.type === 'venueDefault') {
+    const venue = DATA.venues.find(v => v.id === le.id);
+    if (venue) {
+      await upsertVenue(venue);
+      if (syncedEvents.length > 0) {
+        await Promise.all(syncedEvents.map(ev => upsertEvent(ev)));
+      }
+    }
+  } else if (le && le.type === 'event') {
+    const ev = DATA.events.find(e => e.id === le.id);
+    if (ev) await upsertEvent(ev);
+  }
+  await reloadAndRender();
   toast('レイアウトを保存しました');
 }
 
@@ -2258,7 +2386,11 @@ function escapeHtml(s) {
 /* =========================
  * Boot
  * ========================= */
-document.addEventListener('DOMContentLoaded', render);
+document.addEventListener('DOMContentLoaded', async () => {
+  await loadData();
+  subscribeRealtime();
+  render();
+});
 </script>
 </body>
 </html>
