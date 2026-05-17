@@ -912,6 +912,7 @@ function renderAdminEvents() {
         </div>
         <div class="flex flex-col gap-2 shrink-0">
           <button data-action="edit-event-layout" data-id="${ev.id}" class="tool-btn">座席レイアウト</button>
+          <button data-action="download-event-csv" data-id="${ev.id}" class="tool-btn">CSV出力</button>
           <button data-action="delete-event" data-id="${ev.id}" class="tool-btn text-red-600">削除</button>
         </div>
       </div>
@@ -1586,6 +1587,7 @@ function onAction(e) {
     case 'apply-rfilter': applyReservationFilter(); break;
     case 'clear-rfilter': state.admin.reservationFilter = {name:'',phone:'',eventId:''}; render(); break;
     case 'download-csv': downloadCSV(); break;
+    case 'download-event-csv': downloadEventCSV(el.dataset.id); break;
     case 'delete-reservation': askDeleteReservation(id); break;
     case 'set-tool': state.admin.tool = el.getAttribute('data-tool'); render(); break;
     case 'undo': undo(); break;
@@ -1862,6 +1864,37 @@ function downloadCSV() {
   const a = document.createElement('a');
   a.href = url;
   a.download = `reservations_${new Date().toISOString().slice(0,10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast('CSVをダウンロードしました');
+}
+
+function downloadEventCSV(eventId) {
+  const ev = DATA.events.find(e => e.id === eventId);
+  const list = DATA.reservations.filter(r => r.eventId === eventId);
+  const header = ['予約番号','公演名','氏名','電話番号','座席','枚数','予約日時'];
+  const lines = [header.join(',')];
+  list.forEach(r => {
+    const row = [
+      r.id,
+      ev ? ev.name : '(削除済み)',
+      r.name,
+      r.phone,
+      (r.seats||[]).join(' '),
+      r.quantity,
+      formatDateTimeShort(r.createdAt)
+    ].map(csvField).join(',');
+    lines.push(row);
+  });
+  const bom = '﻿';
+  const blob = new Blob([bom + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const safeName = ev ? ev.name.replace(/[\/\\:*?"<>|]/g, '_') : 'event';
+  a.download = `reservations_${safeName}_${new Date().toISOString().slice(0,10)}.csv`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
