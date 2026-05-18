@@ -1750,18 +1750,38 @@ function onAction(e) {
     case 'download-csv': downloadCSV(); break;
     case 'download-event-csv': downloadEventCSV(el.dataset.id); break;
     case 'toggle-public-res': {
-      const evp = DATA.events.find(e => e.id === el.dataset.id);
-      if (evp) {
-        evp.publicReservation = !(evp.publicReservation !== false);
-        (async () => { await upsertEvent(evp); await reloadAndRender(); })();
+      const ev = DATA.events.find(e => e.id === el.dataset.id);
+      if (ev) {
+        ev.publicReservation = el.checked;
+        el.disabled = true;
+        (async () => {
+          try {
+            await upsertEvent(ev);
+            await reloadAndRender();
+          } catch (err) {
+            ev.publicReservation = !el.checked;
+            toast('設定の保存に失敗しました');
+            console.error(err);
+          }
+        })();
       }
       break;
     }
     case 'toggle-free-sale': {
-      const evf = DATA.events.find(e => e.id === el.dataset.id);
-      if (evf) {
-        evf.freeSaleEnabled = !(evf.freeSaleEnabled !== false);
-        (async () => { await upsertEvent(evf); await reloadAndRender(); })();
+      const ev = DATA.events.find(e => e.id === el.dataset.id);
+      if (ev) {
+        ev.freeSaleEnabled = el.checked;
+        el.disabled = true;
+        (async () => {
+          try {
+            await upsertEvent(ev);
+            await reloadAndRender();
+          } catch (err) {
+            ev.freeSaleEnabled = !el.checked;
+            toast('設定の保存に失敗しました');
+            console.error(err);
+          }
+        })();
       }
       break;
     }
